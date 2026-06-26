@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and any AI agent) working in this repo. Keep this file short and current — it is loaded into context every session. For full design/narrative context, read **`README.md`** first.
+Guidance for Claude Code (and any AI agent) working in this repo. Keep this file short and current — it is loaded into context every session. **New session? Read [`CONTINUATION.md`](CONTINUATION.md) first** — it lists, in order, every file to read for full context. For design/narrative, read **`README.md`**.
 
 ## What this is
 A single-page, self-contained HTML dashboard reporting **GPU farm utilization & efficiency** to senior management (AI Platform team). Mockup with **simulated data**. No build system, no framework, no backend.

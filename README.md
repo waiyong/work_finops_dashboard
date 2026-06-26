@@ -26,6 +26,7 @@ Double-clicking `index.html` (file://) will show a data-load error banner — us
 **Files:**
 | File | Role |
 |---|---|
+| `CONTINUATION.md` | **Start-here for a fresh session** — the ordered list of files to read for full context. |
 | `index.html` | Layout, styling, and all chart-rendering logic. **No data is hardcoded here** — every number is computed from the CSVs. |
 | `data/*.csv` | **The entire simulated dataset**, normalized (dimensions + facts). Edit these to change numbers or plug in real data. |
 | `rollup.js` | Loads `data/*.csv`, aggregates into the render globals (`MODELS`, `KPI`, `OUTPUT`, …), resolves `DATA_READY`. The in-browser rollup. |
