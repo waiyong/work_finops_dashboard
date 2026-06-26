@@ -6,7 +6,7 @@
 >
 > **Quick status — what's blocking a working dashboard on real data:**
 > 1. 🟢 Rebuild `dim_models.csv` — DONE (staging): `RAW_DATA/dim_models_rebuilt.csv`, **26 rows, cluster_id auto-filled from DCGM** (§K, §L). Only 2 TODO rows (qwen3-coder-next, phoenix-1-0-small — not in snapshot) + admin to set real costs.
-> 2. ⬜ Rebuild `dim_applications.csv` + `dim_organizations.csv` from real teams; simulate org mapping (§I)
+> 2. 🟢 Rebuild `dim_applications.csv` + `dim_organizations.csv` — DONE & verified (§P,§Q): 36 apps / 8 orgs, manual team→org map; `fact_token_usage_monthly` now produces real data (152 rows). Pending: pull `team_id` UUID (A3).
 > 3. 🟢 ETL blockers RESOLVED (§N update): pandas in `.venv`; tz fixed (localize SGT, browser=Malaysia UTC+8); both aggregation bugs fixed; dim joins repointed to real `dim_models_rebuilt`; workload capacity → 236. **All 4 scripts now run.**
 > 4. 🟡 Scripts run + output to `RAW_DATA/*_real.csv` (staging). Remaining: `fact_token_usage_monthly` empty until `dim_applications` rebuilt (§I); workload query needs `modelName` filter; gptoss dual-cluster duplication; input tokens not pulled.
 > 5. 🟢 Build `fact_card_snapshot` — DONE (staging): `RAW_DATA/fact_card_snapshot_real.csv`, 236 cards, Option A (untracked=`other@cluster`=loaded). Fleet 127/236 = 54% loaded (§M).
@@ -518,8 +518,11 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 > Single source of truth for what's left. Grouped + ordered. Tick as done. (Detail lives in the lettered sections referenced.)
 
 ### A. Blocks real data flowing (must-do)
-- [ ] **A1.** Rebuild `dim_applications.csv` + `dim_organizations.csv` from the 35 real teams → unblocks `fact_token_usage_monthly` (Viz 4 + token KPI). *(§I)*
-- [ ] **A2.** Decide org attribution — `org_alias` not configured in LiteLLM. Either configure it, or approve a manual team→org map. *(§I)*
+- [x] **A1.** Rebuild `dim_applications.csv` (36 teams) + `dim_organizations.csv` (8 orgs) → **DONE & verified (§Q):** `fact_token_usage_monthly` now produces real data (152 rows, all teams matched, HTX 25.8B/SPF 6.5B/ICA 1.75B/SPS 1.18B/CNB 232M/OTHERS 32M). *(§P, §Q)*
+- [x] **A2.** Org attribution — `org_alias` not configured in LiteLLM → **manual team→org map approved (§P)** as temporary bridge; replaced when `org_alias` is configured. *(§P)*
+- [ ] **A3.** (A1 follow-up #2) Pull `team_id` (LiteLLM UUID) as the **rename-proof join key** — deferred; joining on `team_alias` for now (breaks if a team is renamed). Add `team` to the token query's `by(...)` when re-pulling. *(§P)*
+
+> **A1 follow-ups #3 and #4 are tracked elsewhere:** #3 (token data is 5-day smoke-test scale, not a full month) = **B3**; #4 (Viz 4 cost column is placeholder until governance rates set) = **C2**.
 
 ### B. Data-quality fixes (numbers wrong until done)
 - [ ] **B1.** `gptoss-120b` dual-cluster duplication — duty/tokens land on both `@B200`+`@H100`; needs a split rule. *(§N-update)*
@@ -556,3 +559,43 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 - fact_card_snapshot parser built, Option A (§M)
 - 4 ETL scripts fixed & running: pandas venv, SGT tz, aggregation, real dim joins (§N-update)
 - repo pushed to GitHub; RAW_DATA + .venv gitignored
+
+---
+
+## P. A1 decisions — dim_applications / dim_organizations mapping (confirmed 2026-06-26)
+
+Org attribution is **supposed to come from LiteLLM `org_alias`** but it is **not configured yet**, so for now we **manually map team_alias → org** as a temporary bridge. When `org_alias` is later configured, this manual map is replaced (org comes from the metric; `dim_applications` keeps only display slug + `team_id`).
+
+**Confirmed org assignments (36 real teams) — UPDATED 2026-06-26:**
+- **HTX** (21 teams) — renamed from "HTX / AI Platform (internal)" → just **HTX**. Includes: all platform teams (AI Central, AI Safety & Security ×2, ELK Team, Infra, Q Team - HawkAI, ai-platform, q-team, qteam - playground, xCloud ×2, xCode ×2, xData ×2, xDigital-Paperwork) + `aip-gitlab-ci-exempt` + `code-assist-users` + **the Enterprise/Digital teams** (Enterprise AI Product Squad A, Digital Product Squad A - Notetaker, Digital Product Squad B - Teammate). *(Decision: no separate Enterprise org — all parked under HTX.)*
+- **SPF** (7) — the 7 `SPF *` teams.
+- **CNB** (1) — CNB Product Squad A - Narconet.
+- **ICA** (2) — ICA Product Squad A - AION, ICA Product Squad B - AI Extract.
+- **SPS / Prisons** (3) — SPS Product Squad A, SPS Product Squad B - SENSE, Innovation Tiger - SPS Image Recognition.
+- **OTHERS** (2) — `CNPMC - I2MAS+`, `PPMC - FOCUS2` (project codes, agency unknown).
+- **SCDF, MHQ** (0) — keep the org rows for **completeness** even though no teams map to them today (no data → won't render until teams appear).
+
+**Final org list:** HTX, SPF, CNB, ICA, SPS, OTHERS, SCDF (empty), MHQ (empty). *(No Enterprise org — folded into HTX.)*
+
+**Build conventions:**
+- 1 LiteLLM Team = 1 Application (`dim_applications` = 36 rows). Join on `team_alias` (only field emitted today).
+- `app_id` = slugified team_alias (lowercase, spaces/&/+ → hyphens).
+- `team_id` (LiteLLM UUID) = **blank for now** (not pulled); add when `org_alias`/`team` are pulled — it's the rename-proof key.
+- `org_id`/colours/display_order assigned by us (HTX first).
+
+**Resolved:** Enterprise/Digital → HTX (no separate org). **Remaining A1 follow-ups → tracked in §O (A3, B3, C2).**
+
+---
+
+## Q. A1 BUILT & VERIFIED (2026-06-26)
+
+Built from the org mapping in §P. Staging files (gitignored — real agency team names):
+- `RAW_DATA/dim_organizations_rebuilt.csv` — 8 orgs (HTX, SPF, CNB, ICA, SPS, OTHERS, SCDF, MHQ; SCDF/MHQ empty).
+- `RAW_DATA/dim_applications_rebuilt.csv` — **36 apps** (1 per real team), `app_id` = slugified team_alias, `org_id` per §P, `team_id` blank (A3 deferred), join key = `team_alias`. All app_ids unique; per-org counts match (htx 21, spf 7, cnb 1, ica 2, sps 3, others 2).
+
+`fact_token_usage_monthly.py` repointed to the real `dim_applications_rebuilt.csv` and **re-run successfully — no longer empty:**
+- 152 output rows (month × app × model), all 35 teams matched (100% join).
+- Output tokens by org (Jun 15–19 smoke test): **HTX 25,807 M · SPF 6,527 M · ICA 1,753 M · SPS 1,177 M · CNB 232 M · OTHERS 32 M.**
+- Confirms the §I blocker is cleared. `fact_token_usage_monthly_real.csv` written (staging).
+
+**Caveats still apply:** B1 (gptoss dual-cluster duplication visible in the output), B3 (5-day smoke scale, not a full month), C2 (cost still placeholder), A3 (team_id not yet pulled). All tracked in §O.
