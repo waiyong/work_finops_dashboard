@@ -531,9 +531,9 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 - [x] **B4.** ~~Pull `input_tokens`~~ **DROPPED** — no visual renders input tokens; carried-but-unused column; retention concern. *(§R)*
 
 ### C. Dimension / config finalize
-- [ ] **C1.** `dim_clusters.csv` → real inventory B200 **216** / H100 **20** (was 32/18). *(§L)*
-- [ ] **C2.** `internal_cost_per_m_usd` — set real governance rates (all 26 models still placeholder 0.20). *(§J)*
-- [ ] **C3.** Add `other` pseudo-model row (grey) for the utility-workload bucket, or special-case in rollup.js. *(§M)*
+- [x] **C1.** `dim_clusters.csv` → real inventory **DONE** (`dim_clusters_rebuilt.csv`: B200 216 / H100 20; H100 mem 80→94 NVL). *(§S)*
+- [ ] **C2.** `internal_cost_per_m_usd` — **NEEDS ADMIN INPUT** (real $/1M governance rates). Uniform flagged placeholder 0.20 set; size-heuristic rejected as unreliable. *(§S)*
+- [x] **C3.** `other` pseudo-model **DONE** — `other@B200`/`other@H100` grey rows in `dim_models_rebuilt.csv` (excluded from proxy whitelist). *(§S)*
 
 ### D. Dashboard rewrite — the "swap" stage (biggest piece)
 - [ ] **D1.** Swap staging `RAW_DATA/*_real.csv` → `data/*.csv` (atomic, all at once — coherence). *(§M)*
@@ -615,3 +615,15 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 - **B3** (6-month token trend) — **cannot pull 6 months**; simulate the Viz 6 weekly trend + KPI MoM, anchored to the real ~10 days of token volumes. Methodology (weekly `increase()` at 1w step) documented for when retention/persistence allows.
 - **B4** (input tokens) — **DROPPED.** No current visual renders input tokens (Viz 4 output-only; `input_tokens_m` is a carried-but-unused column). Given retention concerns, not worth pulling.
 - **B1** (gptoss dual-cluster split) — unaffected by retention; pure ETL fix, do now.
+
+---
+
+## S. Group C — config finalize (2026-06-26)
+
+- **C1 ✅ `dim_clusters` real inventory** → `RAW_DATA/dim_clusters_rebuilt.csv`:
+  `B200,SUPERPOD,B200,216,192` · `H100,PROD,H100,20,94`. (Was simulated 32/18; H100 memory corrected 80→**94 GB** = H100 NVL.)
+- **C3 ✅ `other` pseudo-model** → appended to `RAW_DATA/dim_models_rebuilt.csv`:
+  `other@B200` + `other@H100`, grey `#C7C7CC`, cost 0. Lets the card map render the "Other workloads" bucket (Option A, §M). Excluded from the B1 proxy whitelist (`model_primary_cluster` skips `name='other'`), so duty/tokens are unaffected — verified 0 `other@` rows in proxy outputs.
+- **C2 🟡 internal cost — still needs admin input.** Set a **uniform flagged placeholder 0.20** for all real models (0.00 for `other`). A size-tier heuristic was attempted but **rejected** — it mis-parsed version-hyphenated names (`spfllm-1-0-123b` → wrong $0.06), producing authoritative-looking but wrong numbers. Uniform placeholder is the honest state; **the platform team must supply real $/1M governance rates.**
+
+`dim_models_rebuilt.csv` now 28 rows (24 real + gptoss dual + 2 `other`). Staging only — swaps into `data/` at the D stage.
