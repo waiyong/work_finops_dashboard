@@ -33,6 +33,7 @@ Double-clicking `index.html` (file://) will show a data-load error banner — us
 | `metric_lineage.md` | **Metric lineage** — traces every on-screen figure raw → intermediate → final (which source metric backs it, or flags admin/simulated). |
 | `START_PROMPT.md` | Original brief that scoped the dashboard. |
 | `project-log/PROJECT_LOG.md` | Cross-session decision & action log. |
+| `project-log/REAL_DATA_MIGRATION.md` | **Active real-data migration tracker** — Grafana→CSV ETL, decisions, outstanding checklist (§O). |
 
 ---
 
@@ -123,12 +124,12 @@ Layout, top to bottom: Header (+ env selector) → Exec summary → 4 KPI cards 
 |---|---|---|
 | `dim_clusters.csv` | Donut + card-map totals (`CLUSTER_TOTAL`) | Physical inventory |
 | `dim_models.csv` | Model colours, costs (`MODELS`, `COSTS`) | LiteLLM dim + **admin-set** internal cost |
-| `dim_organizations.csv`, `dim_applications.csv` | Org→App hierarchy + colours (`ORGS`, Viz 4) | **Native** LiteLLM `org_id`/`team` labels (no lookup) — see `litellm_team_hierarchy.md` |
+| `dim_organizations.csv`, `dim_applications.csv` | Org→App hierarchy + colours (`ORGS`, Viz 4) | LiteLLM `team_alias` → **manual org map** today (`org_alias` not yet configured; native when it is) — see `litellm_team_hierarchy.md` + migration tracker §P |
 | `dim_gpu_pricing.csv` (`gpu_type, usd_per_gpu_hour`) | Training cost = GPU-hrs × rate (Viz 4) | **Admin-set** internal $/GPU-hr (governance rate) |
 | `fact_training_gpu_hours_monthly.csv` (`month, org_id, gpu_type, gpu_hours`) | Training GPU-hrs + cost by org (Viz 4) | Slurm exporter `slurm_account_jobs_gpus_alloc` (∫), `account`→org |
 | `fact_card_snapshot.csv` | `MODELS[].cards`, donut, card map (Viz 3) | DCGM + K8s API (model→card, FB_USED) |
-| `fact_duty_daily.csv` | Duty cycle (Viz 1, KPI) | vLLM `num_requests_running` (per-pod scrape), SGT biz-hours buckets |
-| `fact_token_usage_monthly.csv` (`month, app_id, model_uid, …`) | Org→App→Model tokens + cost (Viz 4) + token KPI | LiteLLM `litellm_output_tokens_metric` (reset-aware deltas), native `org_alias`/`team_alias` labels |
+| `fact_duty_daily.csv` | Duty cycle (Viz 1, KPI) | LiteLLM `litellm_requests_metric` (real user traffic; CI bypasses vLLM `num_requests_running`), SGT biz-hours buckets |
+| `fact_token_usage_monthly.csv` (`month, app_id, model_uid, …`) | Org→App→Model tokens + cost (Viz 4) + token KPI | LiteLLM `litellm_output_tokens_metric` (reset-aware deltas); `team_alias` → manual org map (`org_alias` pending) |
 | `fact_model_token_weekly.csv` | Token output by model (Viz 6) | LiteLLM weekly deltas by model |
 | `fact_workload_util.csv` (weekly GPU-hours: allocated/active/capacity) | Train/inf/batch split + idle (Viz 2, `SPLIT`) | **Derived** GPU-hours: K8s/Slurm allocation (allocated) + DCGM `GPU_UTIL` integral (active). Not a DCGM field — see [`schema.md`](schema.md). |
 | `fact_model_pricing.csv` (`model, provider, output_usd_per_m`) | External-host columns of the cost table (Viz 5) | **User-maintained** — fill external host $/1M by hand. The **Internal** column comes from `dim_models.internal_cost_per_m_usd` (single source, also drives Viz 4). |
@@ -146,9 +147,12 @@ These are documented again in [`schema.md`](schema.md) §5 and `project-log/PROJ
 ---
 
 ## Roadmap / open items (assumptions to confirm with the real pipeline)
-- Training nodes modeled as **≈ 8 cards** (2 nodes) — confirm actual card count.
-- H100 (PROD) modeled as **18 cards** — confirm.
-- Per-cluster token split is now **model-driven** (B200 ≈ 84% / H100 ≈ 16%, from the heavy models living on B200) — this replaced the earlier 70/30 placeholder assumption.
-- ~~team_alias → HTD lookup~~ **resolved** — org/app attribution is native to LiteLLM labels (`org_id`/`org_alias`/`team`/`team_alias`); see `litellm_team_hierarchy.md`. Open config: each app = its own LiteLLM Team.
+
+> **Real-data migration in progress** — the live page is still the simulated mock; real Grafana data is being staged for integration. Full tracker + outstanding checklist: [`project-log/REAL_DATA_MIGRATION.md`](project-log/REAL_DATA_MIGRATION.md). **Key findings so far:** the real inference fleet is **~236 cards** (216 B200 + 20 H100), **not 50**; duty cycle sources from **LiteLLM `litellm_requests_metric`** (CI bypasses vLLM); `org_alias` is **not yet configured** in LiteLLM, so a manual team→org map bridges it for now.
+
+- Inventory: the mock uses B200 32 / H100 18 / fleet 50; the **real DCGM snapshot shows 216 / 20 / 236** (and ~46% idle). Integration ("swap" stage) will recompute every coherence invariant.
+- Training nodes modeled as **≈ 8 cards** — Slurm not yet ingested; stays simulated.
+- Per-cluster token split is **model-driven** (B200 ≈ 84% / H100 ≈ 16%) in the mock.
+- **Org/app attribution** — native LiteLLM labels (`org_id`/`org_alias`/`team`/`team_alias`) is the design (see `litellm_team_hierarchy.md`), but `org_alias` is **not configured in the real proxy yet** → a manual `team_alias`→org map is the current bridge (migration tracker §P). Open config: each app = its own LiteLLM Team.
 - **Internal cost = admin-provided rate** (in `dim_models` / `dim_gpu_pricing`) — a governance input by design, not metric-derived. Open Slurm config: are accounts named per org?
 - **Batch Inference Service** is in pipeline — once live, consider an after-hours utilization view.

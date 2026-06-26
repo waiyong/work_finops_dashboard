@@ -11,7 +11,7 @@ A single-page, self-contained HTML dashboard reporting **GPU farm utilization & 
 - `schema.md` — the normalized schema (ERD), the CSV↔ERD contract, and the upstream ETL design.
 - `metric_lineage.md` — visualisation-first lineage: every on-screen figure traced raw → intermediate (CSV) → final (global), tagged metric-backed / admin-input / simulated.
 - `README.md` — design, narrative, intent, the six visuals, and the data-replacement guide.
-- `START_PROMPT.md` — the original brief. `project-log/PROJECT_LOG.md` — cross-session decision/action log.
+- `START_PROMPT.md` — the original brief. `project-log/PROJECT_LOG.md` — cross-session decision/action log. `project-log/REAL_DATA_MIGRATION.md` — **active real-data migration tracker** (Grafana→CSV); read it before touching real data.
 
 ## Golden rules
 1. **Data and presentation are separated. Keep them separated.** Numbers live in `data/*.csv`; the rollup that turns them into globals lives in `rollup.js`; rendering lives in `index.html`. **Never hardcode data values into `index.html`** — everything is computed (KPIs, the bridge 88%/60%, the cost 72%, cluster rows all derive from the CSVs). To change a number, edit a CSV; to change a model colour/target, edit `dim_models.csv` / `rollup.js` config.
@@ -45,4 +45,8 @@ Playwright MCP is available for headless verification + screenshots. Stop any `h
 - Real-data integration → replace the `data/*.csv` files (same columns) per `schema.md` §5; `rollup.js` and `index.html` should not need to change.
 
 ## Status / open items
-Simulated assumptions still to confirm against the real pipeline: training ≈ 8 cards, H100 = 18 cards, Batch Inference Service (in pipeline). **Resolved:** org/app attribution is native to LiteLLM labels (no team_alias→HTD lookup); internal cost is an **admin-provided rate** (`dim_models` / `dim_gpu_pricing`), not metric-derived. See `metric_lineage.md` for the full source→figure trace. Note: the per-cluster **token split is now model-driven** (B200 ≈ 84% / H100 ≈ 16%), replacing the old 70/30 assumption. See README "Roadmap / open items" and `project-log/PROJECT_LOG.md`.
+**The live dashboard is still the simulated mock** (50 cards, 88% loaded, etc.). A **real-data migration** (Grafana → CSV) is in progress — tracked in **`project-log/REAL_DATA_MIGRATION.md`** (the §O checklist is the to-do list). Real Grafana/DCGM/LiteLLM extracts + staging real CSVs live in **`RAW_DATA/` (gitignored** — real hostnames/IPs/agency team & confidential model names); ETL runs in a local **`.venv`**. Nothing is swapped into `data/` yet, so the mock is unchanged.
+
+Key real-pipeline findings (pending integration, see tracker): real inference fleet ≈ **236 cards** (216 B200 + 20 H100), not 50; duty source moved to **LiteLLM `litellm_requests_metric`** (CI bypasses vLLM, polluting `num_requests_running`); **`org_alias` is NOT yet configured** in LiteLLM, so org/app attribution uses a **manual `team_alias`→org map** for now (native labels are the design target, not current reality).
+
+Still valid for the mock: internal cost is an **admin-provided rate** (`dim_models` / `dim_gpu_pricing`), not metric-derived; the per-cluster **token split is model-driven** (B200 ≈ 84% / H100 ≈ 16%). See `metric_lineage.md` for the full source→figure trace and `project-log/PROJECT_LOG.md` for history.
