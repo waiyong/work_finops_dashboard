@@ -104,6 +104,8 @@
   .cdot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
   .focushint{color:var(--accent);font-weight:600;}
   .mapgrids.solo{grid-template-columns:1fr;}
+  .mapgrids.stacked{grid-template-columns:1fr;}   /* lopsided fleets (e.g. 216 vs 20) → stack panels full-width */
+  .mapgrids.stacked .mbcells{max-width:none;}     /* let big clusters use the full width */
 
   /* Card map */
   .mapgrids{display:grid;grid-template-columns:1.8fr 1fr;gap:28px;margin-top:8px;transition:opacity .18s ease;}
@@ -247,11 +249,11 @@
       <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · live snapshot<span id="mapFocusHint" class="focushint"></span></p>
       <div class="mapgrids" id="mapGrids">
         <div class="mapcluster" id="clusterB200">
-          <div class="chead"><span class="ct">SUPERPOD · B200</span><span class="cs">192GB/card · 28 of 32 loaded</span></div>
+          <div class="chead"><span class="ct">SUPERPOD · B200</span><span class="cs" id="csB200"></span></div>
           <div class="mblocks" id="gridB200"></div>
         </div>
         <div class="mapcluster" id="clusterH100">
-          <div class="chead"><span class="ct">PROD · H100</span><span class="cs">80GB/card · 16 of 18 loaded</span></div>
+          <div class="chead"><span class="ct">PROD · H100</span><span class="cs" id="csH100"></span></div>
           <div class="mblocks" id="gridH100"></div>
         </div>
       </div>
@@ -352,13 +354,13 @@ function renderKPIs(env){
 /* ---- Viz 1: Duty cycle ---- */
 let dutyChart;
 function dutyData(env){
-  let pool = MODELS;
-  if(env==='superpod') pool = MODELS.filter(m=>m.cluster==='B200');
-  if(env==='prod')     pool = MODELS.filter(m=>m.cluster==='H100');
+  let pool = MODELS.filter(m=>m.name!=='other');   // 'other' utility bucket has no duty
+  if(env==='superpod') pool = pool.filter(m=>m.cluster==='B200');
+  if(env==='prod')     pool = pool.filter(m=>m.cluster==='H100');
   const top5 = [...pool].sort((a,b)=>b.duty-a.duty).slice(0,5);
   const wsum = pool.reduce((s,m)=>s+m.duty*m.cards,0);
   const csum = pool.reduce((s,m)=>s+m.cards,0);
-  return {top5, avg: Math.round(wsum/csum)};
+  return {top5, avg: csum?Math.round(wsum/csum):0};
 }
 function renderDuty(env){
   const {top5, avg} = dutyData(env);
@@ -465,24 +467,35 @@ document.addEventListener('click',e=>{   // click outside donut & map → reset 
 /* ---- Viz 3b: Card allocation map ---- */
 function buildGrid(cluster, elId){
   const el = document.getElementById(elId);
-  const models = MODELS.filter(m=>m.cluster===cluster);
-  const loaded = models.reduce((s,m)=>s+m.cards,0);
+  const mem = (CLUSTER_MEM[cluster]||'?')+'GB';
+  // real per-card placement from the snapshot (one square = one physical card)
+  const rows = (window.CARD_ROWS||[]).filter(r=>r.cluster_id===cluster);
+  const byUid = {};
+  rows.forEach(r=>{ if(r.model_uid){ (byUid[r.model_uid]=byUid[r.model_uid]||[]).push(r); } });
+  const loaded = rows.filter(r=>r.model_uid).length;
   const idle = CLUSTER_TOTAL[cluster]-loaded;
-  const mem = cluster==='B200'?'192GB':'80GB';
-  let n=0, html='';
-  models.forEach(m=>{
+  const cs = document.getElementById('cs'+cluster);
+  if(cs) cs.textContent = mem+'/card · '+loaded+' of '+CLUSTER_TOTAL[cluster]+' loaded';
+  let html='';
+  MODELS.filter(m=>m.cluster===cluster).forEach(m=>{
+    const cardRows = byUid[m.name+'@'+cluster];
+    if(!cardRows || !cardRows.length) return;
+    const label = m.name==='other' ? 'Other workloads' : m.name;
     let cells='';
-    for(let i=0;i<m.cards;i++){ n++;
-      cells+=`<span class="mc" style="background:${m.color}" title="${m.name} · ${cluster} card #${String(n).padStart(2,'0')} · ${mem} · duty ${m.duty}%"></span>`;
-    }
+    cardRows.forEach(r=>{
+      const shared = (r.models_on_card && r.models_on_card.indexOf('|')>=0)
+        ? ' · shares card: '+r.models_on_card.replace(/\|/g,', ') : '';
+      const slot = (r.card_slot!==undefined && r.card_slot!=='') ? ' card #'+String(r.card_slot).padStart(2,'0') : '';
+      cells+=`<span class="mc" style="background:${m.color}" title="${label} · ${cluster}${slot} · ${mem} · duty ${m.duty}%${shared}"></span>`;
+    });
     html+=`<div class="mblock"><div class="mbhead"><span class="mbdot" style="background:${m.color}"></span>`
-        + `<span class="mbname">${m.name}</span><span class="mbcount">${m.cards} card${m.cards>1?'s':''}</span></div>`
+        + `<span class="mbname">${m.name==='other'?'Other':m.name}</span><span class="mbcount">${cardRows.length} card${cardRows.length>1?'s':''}</span></div>`
         + `<div class="mbcells">${cells}</div></div>`;
   });
   if(idle>0){
     let cells='';
-    for(let i=0;i<idle;i++){ n++;
-      cells+=`<span class="mc" title="Idle — no model loaded · ${cluster} card #${String(n).padStart(2,'0')} · ${mem}"></span>`;
+    for(let i=0;i<idle;i++){
+      cells+=`<span class="mc" title="Idle — no model loaded · ${cluster} · ${mem}"></span>`;
     }
     html+=`<div class="mblock idle"><div class="mbhead"><span class="mbname">Idle</span>`
         + `<span class="mbcount">${idle} card${idle>1?'s':''}</span></div><div class="mbcells">${cells}</div></div>`;
@@ -668,13 +681,15 @@ function renderNarrative(){
   const supL = MODELS.filter(m=>m.cluster==='B200').reduce((s,m)=>s+m.cards,0);
   const proL = MODELS.filter(m=>m.cluster==='H100').reduce((s,m)=>s+m.cards,0);
   const totB = CLUSTER_TOTAL.B200, totH = CLUSTER_TOTAL.H100;
-  const wsum = MODELS.reduce((s,m)=>s+m.duty*m.cards,0);
-  const csum = MODELS.reduce((s,m)=>s+m.cards,0);
+  // duty average excludes the 'other' utility bucket (no duty signal); loaded includes it
+  const dutyPool = MODELS.filter(m=>m.name!=='other');
+  const wsum = dutyPool.reduce((s,m)=>s+m.duty*m.cards,0);
+  const csum = dutyPool.reduce((s,m)=>s+m.cards,0);
   setRow('B200', supL, totB);
   setRow('H100', proL, totH);
   setRow('All',  supL+proL, totB+totH);
   document.getElementById('bridgeLoaded').textContent = pctStr(supL+proL, totB+totH);
-  document.getElementById('bridgeDuty').textContent   = Math.round(wsum/csum)+'%';
+  document.getElementById('bridgeDuty').textContent   = (csum?Math.round(wsum/csum):0)+'%';
   // cost savings headline is owned by renderCost() (handles the null/blank case)
 }
 
@@ -709,6 +724,12 @@ DATA_READY.then(()=>{
   buildGrid('B200','gridB200');
   buildGrid('H100','gridH100');
   buildLegend();
+  // stack the cluster panels vertically when the fleet is large/lopsided (e.g. 216 vs 20);
+  // side-by-side stays for the balanced mock (32 vs 18).
+  (function(){
+    const t=Object.values(CLUSTER_TOTAL), mx=Math.max.apply(null,t), mn=Math.min.apply(null,t), sum=t.reduce((a,b)=>a+b,0);
+    document.getElementById('mapGrids').classList.toggle('stacked', (mn>0 && mx/mn>=3) || sum>120);
+  })();
   renderSplit();
   renderModelTokens();
   renderCompute();

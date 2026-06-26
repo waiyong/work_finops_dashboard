@@ -32,6 +32,11 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     'fact_token_usage_monthly','fact_model_token_weekly','fact_model_pricing',
     'fact_training_gpu_hours_monthly'];
 
+  /* Data source: default = the tracked simulated mock (data/). `?data=real` loads
+     the gitignored local real dataset (data_real/) — keeps real/confidential data
+     out of git while reusing the exact same renderers. */
+  const DATA_DIR = (new URLSearchParams(location.search).get('data') === 'real') ? 'data_real/' : 'data/';
+
   /* Minimal CSV parser. CSVs are kept comma/quote-free by design. */
   function parseCSV(text){
     const lines = text.replace(/\r/g,'').trim().split('\n');
@@ -45,8 +50,8 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
   }
 
   window.DATA_READY = Promise.all(FILES.map(f =>
-    fetch('data/'+f+'.csv').then(r=>{
-      if(!r.ok) throw new Error('Failed to load data/'+f+'.csv ('+r.status+')');
+    fetch(DATA_DIR+f+'.csv').then(r=>{
+      if(!r.ok) throw new Error('Failed to load '+DATA_DIR+f+'.csv ('+r.status+')');
       return r.text();
     }).then(parseCSV)
   )).then(parts => build.apply(null, parts));
@@ -55,8 +60,8 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     const round1 = v => Math.round(v*10)/10;
 
     /* ---- dimensions ---- */
-    const CLUSTER_TOTAL = {};
-    clusters.forEach(c => CLUSTER_TOTAL[c.cluster_id] = +c.total_cards);
+    const CLUSTER_TOTAL = {}, CLUSTER_MEM = {};
+    clusters.forEach(c => { CLUSTER_TOTAL[c.cluster_id] = +c.total_cards; CLUSTER_MEM[c.cluster_id] = +c.card_memory_gb; });
 
     const modelByUid = {};
     models.forEach(m => modelByUid[m.model_uid] = m);
@@ -244,11 +249,16 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     function pctStr(a,b){ const p = a/b*100; return (p%1===0 ? p : Math.round(p*10)/10) + '%'; }
     function envKPI(clusterFilter){
       const pool  = MODELS.filter(m => !clusterFilter || m.cluster === clusterFilter);
-      const wsum  = pool.reduce((s,m)=> s + m.duty*m.cards, 0);
-      const csum  = pool.reduce((s,m)=> s + m.cards, 0);
+      // 'other' = utility workloads (embeddings/rerankers/…): count as LOADED but
+      // exclude from the duty-weighted average (they carry no duty signal → would
+      // drag the headline down with a fake 0%). No-op for the mock (no 'other').
+      const dutyPool = pool.filter(m => m.name !== 'other');
+      const wsum  = dutyPool.reduce((s,m)=> s + m.duty*m.cards, 0);
+      const dcsum = dutyPool.reduce((s,m)=> s + m.cards, 0);   // duty denominator (excl. other)
+      const csum  = pool.reduce((s,m)=> s + m.cards, 0);       // loaded cards (incl. other)
       const total = clusterFilter ? CLUSTER_TOTAL[clusterFilter] : (CLUSTER_TOTAL.B200 + CLUSTER_TOTAL.H100);
       return {
-        duty:      Math.round(wsum/csum) + '%',
+        duty:      (dcsum ? Math.round(wsum/dcsum) : 0) + '%',
         dutySub:   'target ' + DUTY_TARGET + '%',
         loaded:    pctStr(csum, total),
         loadedSub: csum + ' / ' + total + ' · target ' + LOADED_TARGET + '%',
@@ -258,7 +268,9 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
 
     /* ---- expose globals ---- */
     window.CLUSTER_TOTAL = CLUSTER_TOTAL;
+    window.CLUSTER_MEM   = CLUSTER_MEM;    // cluster_id → card_memory_gb (tooltip)
     window.MODELS        = MODELS;
+    window.CARD_ROWS     = cards;          // raw per-card snapshot rows (model_uid, card_slot, models_on_card) — Viz 3b real placement + MIG hover
     window.WEEKS         = WEEKS;
     window.MODEL_TOKENS  = MODEL_TOKENS;
     window.MONTHS        = MONTHS;

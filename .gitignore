@@ -11,3 +11,6 @@ RAW_DATA/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Real (confidential) dashboard dataset — local-only, never commit
+data_real/
