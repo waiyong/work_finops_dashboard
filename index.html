@@ -280,7 +280,7 @@
   <div class="row full">
     <div class="panel">
       <h2>Token Output by Model</h2>
-      <p class="subtitle">Output tokens by model · weekly · Jan–Jun 2026</p>
+      <p class="subtitle" id="viz6sub">Output tokens by model</p>
       <div class="chartbox" style="height:300px;margin-top:10px;"><canvas id="modelTokenChart"></canvas></div>
       <div class="footnote">Weekly output-token generation per served model. The stacked total shows fleet throughput <b>growing ~70% over the period</b>; week-to-week peaks shift as demand moves between models. A model-level lens on the same throughput shown by HTD below.</div>
     </div>
@@ -333,22 +333,31 @@ function kpiStatus(actual, target){            // green / amber / red by distanc
   if(actual >= target - KPI_MARGIN) return 'warn';
   return 'bad';
 }
-function tokenTotals(){                          // fleet output tokens: latest vs previous month
+function fmtTok(v){ return v>=1000 ? (v/1000).toFixed(1)+'B' : Math.round(v)+'M'; }
+function tokenTotals(){                          // fleet output tokens: latest vs previous period
   const i = MONTHS.length - 1;
-  const cur = OUTPUT_FLEET[i], prev = OUTPUT_FLEET[i-1];
-  return {cur, prev, curM: MONTHS[i], prevM: MONTHS[i-1], mom: (cur - prev) / prev * 100};
+  const cur = OUTPUT_FLEET[i];
+  const hasPrev = i >= 1;                        // adaptive: MoM only when ≥2 periods exist
+  const prev = hasPrev ? OUTPUT_FLEET[i-1] : null;
+  return {cur, prev, hasPrev, curM: MONTHS[i], prevM: hasPrev?MONTHS[i-1]:null,
+          mom: hasPrev ? (cur - prev) / prev * 100 : null};
 }
 function renderKPIs(env){
   const k = KPI[env];
   const dS = kpiStatus(parseFloat(k.duty),   DUTY_TARGET);
   const lS = kpiStatus(parseFloat(k.loaded), LOADED_TARGET);
   const t = tokenTotals();
-  const tCls = t.mom >= 0 ? 'up' : 'bad';
-  const momStr = (t.mom >= 0 ? '↑ ' : '↓ ') + Math.abs(t.mom).toFixed(1) + '% MoM';
+  let tCls = '', tSub;
+  if(t.hasPrev){
+    tCls = t.mom >= 0 ? 'up' : 'bad';
+    tSub = (t.mom >= 0 ? '↑ ' : '↓ ') + Math.abs(t.mom).toFixed(1) + '% MoM vs ' + fmtTok(t.prev) + ' ' + t.prevM;
+  } else {
+    tSub = t.curM + ' · single period (trend builds as history accumulates)';
+  }
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">GPU Utilization</div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
     <div class="kpi"><div class="label">GPUs Loaded</div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
-    <div class="kpi"><div class="label">Monthly Tokens (output)</div><div class="val">${t.cur}M</div><div class="sub ${tCls}">${momStr} vs ${t.prev}M ${t.prevM}</div></div>`;
+    <div class="kpi"><div class="label">Monthly Tokens (output)</div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
 }
 
 /* ---- Viz 1: Duty cycle ---- */
@@ -724,6 +733,11 @@ DATA_READY.then(()=>{
   buildGrid('B200','gridB200');
   buildGrid('H100','gridH100');
   buildLegend();
+  // Viz 6 subtitle reflects the ACTUAL period range in the data (adapts: 5 days now, weeks later)
+  if(WEEKS.length){
+    const span = WEEKS.length>1 ? WEEKS[0]+' – '+WEEKS[WEEKS.length-1] : WEEKS[0];
+    document.getElementById('viz6sub').textContent = 'Output tokens by model · '+span+' ('+WEEKS.length+' periods)';
+  }
   // stack the cluster panels vertically when the fleet is large/lopsided (e.g. 216 vs 20);
   // side-by-side stays for the balanced mock (32 vs 18).
   (function(){
