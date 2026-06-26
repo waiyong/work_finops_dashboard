@@ -37,16 +37,16 @@ Playwright MCP is available for headless verification + screenshots. Stop any `h
 - Plain ES5/ES6 JS, no modules/bundler. Chart.js v4 + `chartjs-plugin-annotation` (registered globally) + `chartjs-plugin-datalabels` (passed per-chart, not global).
 - One `render*` function per chart; charts that respond to filters are rebuilt/`.update()`d, not recreated.
 - Keep everything in these few files — do **not** introduce a framework, package.json, or build step. "Serve over HTTP and it works" is a hard requirement (CSV fetch needs HTTP).
-- Colors for models live in `dim_models.csv` (`color_hex`) and drive the card-map blocks (color dot + card squares) in Viz 3b; dept colours in `dim_departments.csv`.
+- Colors for models live in `dim_models.csv` (`color_hex`) and drive the card-map blocks (color dot + card squares) in Viz 3b; org colours in `dim_organizations.csv`.
 
 ## When extending
 - New visual → add its data to a `data/*.csv` (+ rollup logic in `rollup.js` to expose a new global), a `render*` fn + a `.panel` in `index.html`, and a row in the README's visuals table.
 - Changing inventory/counts → re-check every coherence invariant before considering it done.
-- Real-data integration → replace the `data/*.csv` files (same columns) per `schema.md` §5; `rollup.js` and `index.html` should not need to change.
+- Real-data integration → a **same-shape** CSV swap needs no code change. The actual real dataset is wired via the **`?data=real`** switch (reads gitignored `data_real/`); Phase D added backward-compatible handling for the 236-card fleet, the `other` utility bucket, and adaptive short-window visuals — any new code must work for **both** the mock and `?data=real`.
 
 ## Status / open items
-**The live dashboard is still the simulated mock** (50 cards, 88% loaded, etc.). A **real-data migration** (Grafana → CSV) is in progress — tracked in **`project-log/REAL_DATA_MIGRATION.md`** (the §O checklist is the to-do list). Real Grafana/DCGM/LiteLLM extracts + staging real CSVs live in **`RAW_DATA/` (gitignored** — real hostnames/IPs/agency team & confidential model names); ETL runs in a local **`.venv`**. Nothing is swapped into `data/` yet, so the mock is unchanged.
+**Two views, one codebase.** `index.html` = the tracked **simulated mock** (50 cards, 88%/60%); the golden-rule numbers above describe it. **`index.html?data=real`** = the **real dashboard** (236 cards, 53.8% loaded) — reads gitignored **`data_real/`** (real Grafana/DCGM/LiteLLM data, never committed; built from gitignored `RAW_DATA/` via a local `.venv`). The renderers are shared; keep changes backward-compatible.
 
-Key real-pipeline findings (pending integration, see tracker): real inference fleet ≈ **236 cards** (216 B200 + 20 H100), not 50; duty source moved to **LiteLLM `litellm_requests_metric`** (CI bypasses vLLM, polluting `num_requests_running`); **`org_alias` is NOT yet configured** in LiteLLM, so org/app attribution uses a **manual `team_alias`→org map** for now (native labels are the design target, not current reality).
+**For any real-data work, start at `project-log/REAL_DATA_MIGRATION.md`** — it has the full A→D journey, the **§O outstanding checklist**, and **§T patch registry** (every short-term 5-day / point-in-time workaround + its drop trigger for production).
 
-Still valid for the mock: internal cost is an **admin-provided rate** (`dim_models` / `dim_gpu_pricing`), not metric-derived; the per-cluster **token split is model-driven** (B200 ≈ 84% / H100 ≈ 16%). See `metric_lineage.md` for the full source→figure trace and `project-log/PROJECT_LOG.md` for history.
+Real-view reality (Phase D done): real fleet **236 cards**; duty from **LiteLLM `litellm_requests_metric`** (CI bypasses vLLM); **`org_alias` not configured** → manual `team_alias`→org map; trend visuals **adaptive / real-only** (the real ~5-day window, no fabricated history). Still mock/placeholder on the real view: Viz 4 **training** (Slurm pending), **cost rates** ($0.20 placeholder). Mock-only: internal cost admin-provided; token split model-driven. See `metric_lineage.md` + `project-log/PROJECT_LOG.md`.

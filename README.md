@@ -74,7 +74,7 @@ The page is designed to be read like a one-page argument:
 
 | # | Title | Type | What it answers | Data-maturity badge |
 |---|---|---|---|---|
-| 1 | **GPU Duty Cycle — Top 5 Models** | Horizontal bar + 80% target line | Which models keep their cards busy? Fleet-weighted avg = 60%. | Source: vLLM `num_requests_running` |
+| 1 | **GPU Duty Cycle — Top 5 Models** | Horizontal bar + 80% target line | Which models keep their cards busy? Fleet-weighted avg = 60%. | Source: LiteLLM `litellm_requests_metric` |
 | 3a | **% GPUs with Models Loaded** | Donut + 90% threshold | How many cards have a model loaded at all? 44/50 = 88%. | Source: DCGM + K8s API |
 | 3b | **GPU Card Allocation Map** | Model-grouped card blocks | Which model sits on which physical card; where are the idle cards? Each model is a labeled block (dot · name · count) holding its card squares; idle cards form a dashed block. | Source: DCGM + K8s API |
 | 2 | **Utilization by Workload** | Stacked area, weekly (GPU card-hours as % of farm capacity, + idle band) | How is the farm split across inference/training/batch, and is total utilization rising? 46% → 75%. | DCGM + K8s + Slurm (batch ⚠ pending) |
@@ -148,9 +148,9 @@ These are documented again in [`schema.md`](schema.md) §5 and `project-log/PROJ
 
 ## Roadmap / open items (assumptions to confirm with the real pipeline)
 
-> **Real-data migration in progress** — the live page is still the simulated mock; real Grafana data is being staged for integration. Full tracker + outstanding checklist: [`project-log/REAL_DATA_MIGRATION.md`](project-log/REAL_DATA_MIGRATION.md). **Key findings so far:** the real inference fleet is **~236 cards** (216 B200 + 20 H100), **not 50**; duty cycle sources from **LiteLLM `litellm_requests_metric`** (CI bypasses vLLM); `org_alias` is **not yet configured** in LiteLLM, so a manual team→org map bridges it for now.
+> **Real-data migration — the real dashboard now renders.** `index.html?data=real` shows the real fleet (maintainer-local; reads gitignored `data_real/`), while the default `index.html` stays the simulated mock. Full tracker + checklist: [`project-log/REAL_DATA_MIGRATION.md`](project-log/REAL_DATA_MIGRATION.md) — **§O = to-do, §T = patch registry** (the short-term workarounds + their drop triggers for production). **Real now:** 236-card fleet (216 B200 + 20 H100, ~54% loaded), duty from **LiteLLM `litellm_requests_metric`**, real Org→App→Model tokens. Trend visuals are **adaptive** (the real ~5-day window — no fabricated history). **Still mock/placeholder on the real view:** training GPU-hrs (Slurm pending) + cost rates; `org_alias` not configured → manual team→org map.
 
-- Inventory: the mock uses B200 32 / H100 18 / fleet 50; the **real DCGM snapshot shows 216 / 20 / 236** (and ~46% idle). Integration ("swap" stage) will recompute every coherence invariant.
+- Inventory: the mock uses B200 32 / H100 18 / fleet 50; the **real view recomputes to 216 / 20 / 236** (127 loaded ≈ 54%, ~46% idle) — every coherence invariant is recomputed from the real CSVs.
 - Training nodes modeled as **≈ 8 cards** — Slurm not yet ingested; stays simulated.
 - Per-cluster token split is **model-driven** (B200 ≈ 84% / H100 ≈ 16%) in the mock.
 - **Org/app attribution** — native LiteLLM labels (`org_id`/`org_alias`/`team`/`team_alias`) is the design (see `litellm_team_hierarchy.md`), but `org_alias` is **not configured in the real proxy yet** → a manual `team_alias`→org map is the current bridge (migration tracker §P). Open config: each app = its own LiteLLM Team.
