@@ -538,12 +538,12 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 - [x] **C3.** `other` pseudo-model **DONE** — `other@B200`/`other@H100` grey rows in `dim_models_rebuilt.csv` (excluded from proxy whitelist). *(§S)*
 
 ### D. Dashboard rewrite — the "swap" stage (biggest piece)
-- [ ] **D1.** Swap staging `RAW_DATA/*_real.csv` → `data/*.csv` (atomic, all at once — coherence). *(§M)*
-- [ ] **D2.** `rollup.js` + `index.html` to render **236 cards** (card map built for 50 today).
-- [ ] **D3.** Render the `other@cluster` "Other workloads" bucket (grey) in donut + card map.
-- [ ] **D4.** MIG hover — show `models_on_card` list (multiple models per H100 card).
-- [ ] **D5.** Recompute all coherence invariants (44/50→127/236, 88%→54%, bridge caption, KPI tiles, exec summary).
-- [ ] **D6.** Decide idle %: point-in-time snapshot vs averaged window. *(§L idle note)*
+- [x] **D1.** Swap staging `RAW_DATA/*_real.csv` → `data/*.csv` (atomic, all at once — coherence). *(§M)*
+- [x] **D2.** `rollup.js` + `index.html` to render **236 cards** (card map built for 50 today).
+- [x] **D3.** Render the `other@cluster` "Other workloads" bucket (grey) in donut + card map.
+- [x] **D4.** MIG hover — show `models_on_card` list (multiple models per H100 card).
+- [x] **D5.** Recompute all coherence invariants (44/50→127/236, 88%→54%, bridge caption, KPI tiles, exec summary).
+- [x] **D6.** Decide idle %: point-in-time snapshot vs averaged window. *(§L idle note)*
 
 ### E. Stays simulated (out of scope now)
 - [ ] **E1.** `fact_training_gpu_hours_monthly` — Slurm not ingested.
@@ -664,3 +664,26 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 3. Get P7 real cost rates from platform.
 4. Re-confirm P8 clusters; fix P9 capacity; settle P10 idle policy.
 5. Then re-read §E and update `schema.md`/`metric_lineage.md` to match the now-real pipeline.
+
+---
+
+## U. Phase D — dashboard on real data, DONE (2026-06-26)
+
+The dashboard now renders the real data via **`index.html?data=real`** (loads gitignored `data_real/`); the tracked mock (`index.html`) is unchanged. `rollup.js` `DATA_DIR` switch; code changes backward-compatible (work for both 50-card mock and 236-card real). Verified in browser (0 console errors).
+
+**Real now (via ?data=real):**
+- **D1** — KPIs (47% util / 53.8% loaded), Viz 1 duty top-5, donut 127/236, **236-card map** (stacked, `other` grey bucket, MIG hover), bridge. `other` excluded from duty avg.
+- **D2** — token KPI **35.3B** (adaptive: single-period, MoM hidden), **Viz 6 real 5-day daily trend** (21 models), **Viz 4 Org→App→Model** real (HTX 25.6B/SPF 6.5B/ICA/SPS/CNB/OTHERS, 36 apps). Cost col = real tokens × placeholder rate.
+- **D3** — **Viz 2 = 54%** derived from the real card snapshot (same DCGM FB_USED, correctly filtered → ties to donut), single current-snapshot period; **Viz 4 inference GPU-hrs 21,336** (real, same source); Viz 5 real models + placeholder cost (savings hidden); footnotes data-driven/neutral. **No exec-summary line exists.**
+
+**KEY DECISION — dropped the simulated-history patches (P1/P2/P3 retired, not deferred):**
+Instead of fabricating 6-month/24-week history, the trend visuals are **adaptive / real-only**: they show exactly the real window and **auto-fill as history accumulates**. So:
+- **Viz 6 / token KPI** → show the real ~5 days; KPI MoM hidden until ≥2 periods. (P2/P3 **dropped**, not patched.)
+- **Viz 2** → derived from the reliable **card snapshot** (current 54%), NOT the flawed workload query and NOT simulated. (P1 **dropped**.) Point-in-time by nature; becomes a trend when real workload history exists.
+
+**Still mock / pending on the real view (unchanged from groups C/E):**
+- Viz 4 **Training** GPU-hrs (4,880) + training drill — Slurm not ingested (E1).
+- Viz 5 internal cost = placeholder **$0.20** (C2 — needs admin governance rates); external prices blank.
+- Viz 2 is a single snapshot point (no real workload time-series until a corrected DCGM pull or persistence store).
+
+**To run the real dashboard:** `python3 -m http.server` then open `index.html?data=real`. Real CSVs live in gitignored `data_real/` (built from `RAW_DATA/` staging); never committed.
