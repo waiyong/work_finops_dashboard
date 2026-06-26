@@ -528,8 +528,8 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 
 ### B. Data-quality fixes (numbers wrong until done)
 - [x] **B1.** `gptoss-120b` dual-cluster duplication — **DONE:** `model_primary_cluster()` in `pod_model_map.py` attributes proxy metrics to the primary cluster (most cards); 3 proxy ETL scripts rewired off the duplicating join. Verified: gptoss now `@B200` only in duty/token_weekly/token_usage. *(§N-update, §R)*
-- [ ] **B2.** `fact_workload_util` accuracy — **can't re-pull** (10-day retention, window expired). **Simulate** a reasonable, **trend-consistent** inference util (54% snapshot = loose sanity reference, NOT a hard anchor); keep corrected methodology documented. *(§R)*
-- [ ] **B3.** Token trend (Viz 6 weekly + KPI MoM) — **can't pull 6 months** (10-day retention). **Simulate** history anchored to real ~10-day volumes, keep methodology. Needs upstream persistence store for real history. *(§R)*
+- [x] **B2.** `fact_workload_util` — **SUPERSEDED by adaptive (§U):** did NOT simulate. Viz 2 is **derived from the real card snapshot** (single current point, 54% = donut). Tracked as patch **P1** (drop when a real workload time-series exists). *(§U, §T)*
+- [x] **B3.** Token trend — **SUPERSEDED by adaptive (§U):** did NOT simulate. Viz 6 shows the real **5 daily points**; KPI MoM hidden until ≥2 periods. Tracked as patch **P2** (auto-fills as history accrues). *(§U, §T)*
 - [x] **B4.** ~~Pull `input_tokens`~~ **DROPPED** — no visual renders input tokens; carried-but-unused column; retention concern. *(§R)*
 
 ### C. Dimension / config finalize
@@ -538,7 +538,7 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 - [x] **C3.** `other` pseudo-model **DONE** — `other@B200`/`other@H100` grey rows in `dim_models_rebuilt.csv` (excluded from proxy whitelist). *(§S)*
 
 ### D. Dashboard rewrite — the "swap" stage (biggest piece)
-- [x] **D1.** Swap staging `RAW_DATA/*_real.csv` → `data/*.csv` (atomic, all at once — coherence). *(§M)*
+- [x] **D1.** Wire real data via **`?data=real` → gitignored `data_real/`** (NOT swapped into tracked `data/` — keeps confidential data out of git; mock stays the tracked baseline). Code is backward-compatible. *(§U, patch P13)*
 - [x] **D2.** `rollup.js` + `index.html` to render **236 cards** (card map built for 50 today).
 - [x] **D3.** Render the `other@cluster` "Other workloads" bucket (grey) in donut + card map.
 - [x] **D4.** MIG hover — show `models_on_card` list (multiple models per H100 card).
@@ -613,6 +613,9 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 - **Point-in-time visuals CAN be real now** (card map, loaded %, 14-day duty).
 
 **B-group decisions under this constraint:**
+
+> 🔄 **SUPERSEDED (Phase D, §U):** the "simulate" decisions for B2/B3 below were **reversed** — we shipped **adaptive / real-only** instead (show the real window; Viz 2 from the card snapshot). The actual shipped patches are **P1/P2 in §T**. The text below is kept for history.
+
 - **B2** (workload util) — keep the corrected query/methodology documented (`modelName=~"NVIDIA B200|H100.*"` + `[1w:1m]` × 24×7); **simulate a reasonable, trend-consistent inference util** — the 54% snapshot is a **loose sanity reference, not a hard anchor** (the value just needs to be plausible and consistent with the daily trend). Don't rely on re-pulling the expired window.
 - **B3** (6-month token trend) — **cannot pull 6 months**; simulate the Viz 6 weekly trend + KPI MoM, anchored to the real ~10 days of token volumes. Methodology (weekly `increase()` at 1w step) documented for when retention/persistence allows.
 - **B4** (input tokens) — **DROPPED.** No current visual renders input tokens (Viz 4 output-only; `input_tokens_m` is a carried-but-unused column). Given retention concerns, not worth pulling.
@@ -635,21 +638,27 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 ## T. ⚠ PATCH & WORKAROUND REGISTRY — revisit/drop when production data lands
 
 > **Purpose.** Every temporary workaround taken because the data isn't production-grade yet. When real history + proper config arrive, walk this list and **strip the scaffolding** — the goal is a production-ready dashboard with **zero** of these patches. **IMPORTANT: not all patches are retired by 6 months of data** — the "Drop trigger" column says exactly what retires each one. Some need a **LiteLLM config change** or **admin input**, NOT just more data.
+>
+> 🔄 **Reconciled with the shipped Phase-D state (§U), 2026-06-26.** The earlier *simulation* approach (fabricate 6-month/24-week history) was **rejected** in Phase D in favour of **adaptive / real-only + snapshot-derived** visuals. So P1/P2 below were **rewritten** to describe the *adaptive* limitations that actually shipped (not simulation), and P11–P14 were added for the rest of the shipped 5-day/point-in-time scaffolding. **This table now reflects what is actually live at `index.html?data=real`.**
 
 ### Patches (drop these when their trigger fires)
 
 | # | Patch (what we did) | Why (the limitation) | **Drop trigger** | Production-ready target |
 |---|---|---|---|---|
-| **P1** | Viz 2 workload **utilization SIMULATED** (trend-consistent, ~54% loose anchor) | Prometheus **10-day retention** → no history; original pull also flawed (no `modelName` filter, rolling `[1d:1m]` window) | **6-month data + retention/persistence store** | Real `fact_workload_util` from the corrected query (`modelName=~"NVIDIA B200\|H100.*"`, `[1w:1m]`×24×7) over full history |
-| **P2** | Viz 6 weekly token trend + **token KPI MoM SIMULATED** (real ~10-day anchors) | 10-day retention → no 6-month trend | **6-month data + persistence** | Real weekly/monthly token rollups from LiteLLM over the full window |
-| **P3** | **Smoke-test ETL outputs** (`RAW_DATA/*_real.csv` from Jun 15–19, now partly expired) are throwaway | 5-day smoke test only | **6-month data** | Re-run all ETL on the production pull; delete the smoke-test CSVs |
+| **P1** | **Viz 2 = single point-in-time snapshot** (`data_real/fact_workload_util.csv` = one hand-built "Jun 26" row, 54% = 127/236 derived from the real card snapshot). NOT a trend, NOT simulated, NOT the flawed query. Chart shows one dot + "current snapshot" framing. | no reliable workload **time-series** (original DCGM query flawed: no `modelName` filter + rolling `[1d:1m]`; and 10-day retention) | **real workload time-series** — a corrected `modelName`-filtered DCGM pull, accumulated/persisted over time | multi-period `fact_workload_util` trend from the corrected query (`modelName=~"NVIDIA B200\|H100.*"`, `[1w:1m]`×hours) |
+| **P2** | **Viz 6 + token KPI adaptive to the ~5-day window** (NOT simulated): Viz 6 shows **5 daily points** (aggregated daily, not a weekly trend); **KPI MoM hidden** ("single period") because only 1 month exists. Subtitles are data-driven so they self-describe the real window. | 10-day retention → only ~5 days were pulled | **history accumulates** (persistence store / longer pulls) — the visuals **auto-fill, no code change** | weekly/monthly trend + MoM appear automatically as real periods accrue |
+| **P3** | **Smoke-test data is throwaway** — `RAW_DATA/*_real.csv` (Jun 15–19, partly expired) AND the `data_real/` files built from them | 5-day smoke pull only | **production pull** | re-run ETL on the production window; rebuild `data_real/`; delete the smoke CSVs |
 | **P4** | **gptoss-120b collapsed to primary cluster** (B200) for duty/tokens (B1) | LiteLLM proxy metrics have **no cluster label** — a model on 2 clusters would double-count | **LiteLLM config: emit a cluster/deployment label** (NOT fixed by more data) | Attribute proxy metrics per real cluster label; or split by card-share. Until then the H100 slice of gptoss is under-represented |
 | **P5** | **Manual `team_alias`→org map** in dim_applications/dim_organizations (A1/A2) | `org_alias` **not configured** in LiteLLM | **LiteLLM config: enable `org_alias`** (NOT fixed by more data) | Native org attribution from the metric label; drop the manual org assignments |
 | **P6** | Join on **`team_alias`** (rename-fragile), `team_id` blank (A3) | `team_id` UUID not pulled | **Re-pull adding `team` to `by(...)`** | Join on stable `team_id` UUID; alias is display-only |
 | **P7** | **Cost = uniform placeholder `0.20`** (C2) | Real governance rates not provided | **Admin supplies real $/1M** (NOT fixed by data) | Real `internal_cost_per_m_usd` per model from platform team |
 | **P8** | `qwen3-coder-next` + `phoenix-1-0-small` cluster = **H100 (guess)** | Not present in the DCGM snapshot | **DCGM re-confirm when deployed** | Cluster from DCGM placement like every other model |
-| **P9** | `fact_workload_util` **capacity hardcoded `236`** in the script | Quick constant | **D-stage wiring** | Derive from `dim_clusters.total_cards` sum |
-| **P10** | Loaded/idle % from a **single point-in-time** DCGM snapshot | Instant query | **Decide policy (D6)** | Either accept point-in-time (placement is a current-state fact) or average loaded-fraction over a window for the headline |
+| **P9** | `fact_workload_util.py` **capacity hardcoded `236`** in the ETL (the dashboard itself now derives the denominator from `dim_clusters` — data-driven) | quick constant left in the ETL | **make the ETL read `dim_clusters`** | ETL derives capacity from `dim_clusters.total_cards` sum |
+| **P10** | Loaded/idle % from a **single point-in-time** DCGM snapshot (shipped: D6 chose point-in-time) | instant query | **policy revisit** | accept point-in-time (placement is a current-state fact) or average the loaded-fraction over a window for the headline |
+| **P11** | **`data_real/` is hand-built** — staging `RAW_DATA/*_real.csv` copied into contract filenames + a one-off daily-token generator + a hand-derived workload row. Not produced by an automated pipeline. | no production ETL pipeline yet | **production ETL** writes the contract CSVs | automated raw→contract pipeline (schema.md §6) feeds `data_real/` (or a live store) |
+| **P12** | **Mock/placeholder numbers visible ON the real view** — Viz 4 **Training** GPU-hrs (4,880) + training drill, and Viz 5 **internal cost** ($0.20 placeholder) + blank externals. Real inference sits next to mock training/cost. | Slurm not ingested (E1); cost rates not provided (C2) | **Slurm ingest + admin $/1M rates** | real training GPU-hrs + real costs; OR hide/flag these until available so the "real" view has no mock numbers |
+| **P13** | Real data served via **`?data=real` + gitignored `data_real/`** (local-only, to keep confidential names out of git) | tracked repo must stay shareable/safe (mock) | **production deployment decision** (deliberate, not a bug) | in a private deployment, serve real data directly; keep the `?data=real` switch for the public mock |
+| **P14** | Header **"Last updated 17 Jun 2026"** is hardcoded (not data-driven); env selector **L1/L2/L3** buttons don't actually filter (pre-existing stub) | cosmetic / pre-existing | **D-polish / future** | data-driven last-updated timestamp; wire or remove the L1/L2/L3 buttons |
 
 ### Permanent decisions — do NOT drop (recorded so they aren't mistaken for patches)
 - **Duty source = LiteLLM `litellm_requests_metric`** (not vLLM) — permanent; CI bypasses the proxy so it's the *more* accurate source, not a workaround (§A).
@@ -659,11 +668,13 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 - **Real fleet inventory 236 (216/20), H100 NVL 94 GB** (C1) — real, permanent.
 
 ### The clean-up checklist for "production data day"
-1. Replace P1/P2 simulated trends with real ETL output; delete P3 smoke-test CSVs and re-run.
-2. If LiteLLM is reconfigured: retire P4 (cluster label), P5 (org_alias), P6 (team_id).
-3. Get P7 real cost rates from platform.
-4. Re-confirm P8 clusters; fix P9 capacity; settle P10 idle policy.
-5. Then re-read §E and update `schema.md`/`metric_lineage.md` to match the now-real pipeline.
+1. **Data/history (P1, P2, P3, P11):** stand up the production ETL pipeline + persistence store → rebuild `data_real/`. The adaptive Viz 6 / token KPI / Viz 2 then **auto-fill into real trends** (no code change). Delete the smoke-test CSVs.
+2. **LiteLLM config (P4, P5, P6):** emit a cluster/deployment label (drop the gptoss primary-cluster collapse); enable `org_alias` (drop the manual team→org map); pull `team` UUID (switch the join key from `team_alias`).
+3. **Admin input (P7, P12):** get real `$/1M` cost rates → Viz 4 cost + Viz 5 stop being placeholder.
+4. **Slurm (P12, E1):** ingest the Slurm exporter → Viz 4 training becomes real (no mock numbers on the real view).
+5. **Code cleanup (P8, P9, P10, P14):** confirm the 2 guessed clusters; make the ETL read `dim_clusters` for capacity; settle the idle-% policy; data-driven last-updated; wire or remove L1/L2/L3.
+6. **Deployment (P13):** decide how real data is served in production (direct vs the local-only `?data=real` switch).
+7. **Docs (§E):** update `schema.md`/`metric_lineage.md` to match the now-real pipeline.
 
 ---
 
@@ -676,10 +687,11 @@ The dashboard now renders the real data via **`index.html?data=real`** (loads gi
 - **D2** — token KPI **35.3B** (adaptive: single-period, MoM hidden), **Viz 6 real 5-day daily trend** (21 models), **Viz 4 Org→App→Model** real (HTX 25.6B/SPF 6.5B/ICA/SPS/CNB/OTHERS, 36 apps). Cost col = real tokens × placeholder rate.
 - **D3** — **Viz 2 = 54%** derived from the real card snapshot (same DCGM FB_USED, correctly filtered → ties to donut), single current-snapshot period; **Viz 4 inference GPU-hrs 21,336** (real, same source); Viz 5 real models + placeholder cost (savings hidden); footnotes data-driven/neutral. **No exec-summary line exists.**
 
-**KEY DECISION — dropped the simulated-history patches (P1/P2/P3 retired, not deferred):**
-Instead of fabricating 6-month/24-week history, the trend visuals are **adaptive / real-only**: they show exactly the real window and **auto-fill as history accumulates**. So:
-- **Viz 6 / token KPI** → show the real ~5 days; KPI MoM hidden until ≥2 periods. (P2/P3 **dropped**, not patched.)
-- **Viz 2** → derived from the reliable **card snapshot** (current 54%), NOT the flawed workload query and NOT simulated. (P1 **dropped**.) Point-in-time by nature; becomes a trend when real workload history exists.
+**KEY DECISION — rejected *simulated* history; shipped *adaptive / real-only* instead:**
+Instead of fabricating 6-month/24-week history, the trend visuals show exactly the real window and **auto-fill as history accumulates** — no fake data. So:
+- **Viz 6 / token KPI** → show the real ~5 days (daily); KPI MoM hidden until ≥2 periods. *(now patch **P2** in §T — the adaptive limitation, not a simulation)*
+- **Viz 2** → derived from the reliable **card snapshot** (current 54%), NOT the flawed workload query and NOT simulated. Point-in-time by nature; becomes a trend when real workload history exists. *(now patch **P1** in §T)*
+> The old §T entries that described *simulating* these were rewritten — the table reflects the **adaptive** reality that shipped.
 
 **Still mock / pending on the real view (unchanged from groups C/E):**
 - Viz 4 **Training** GPU-hrs (4,880) + training drill — Slurm not ingested (E1).
