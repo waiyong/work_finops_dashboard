@@ -1,0 +1,17 @@
+name,cluster_id,model_uid,color_hex,internal_cost_per_m_usd
+glm5-1,B200,glm5-1@B200,#0071E3,0.15
+gptoss-120b,B200,gptoss-120b@B200,#34C759,0.80
+deepseek-v4-flash,B200,deepseek-v4-flash@B200,#5E5CE6,0.20
+kimi-k2-6,B200,kimi-k2-6@B200,#FF9F0A,0.30
+qwen3-coder-next,B200,qwen3-coder-next@B200,#30B0C7,0.22
+llama4-scout-17b,B200,llama4-scout-17b@B200,#BF5AF2,0.18
+glm-4.7-flash,B200,glm-4.7-flash@B200,#E0B400,0.12
+mistral-large-3,B200,mistral-large-3@B200,#64D2FF,0.35
+minimax-m2-7,H100,minimax-m2-7@H100,#FF375F,0.25
+deepseek-r1-70b,H100,deepseek-r1-70b@H100,#AC8E68,0.28
+qwen2.5-72b,H100,qwen2.5-72b@H100,#66D4CF,0.24
+phi-4-15b,H100,phi-4-15b@H100,#A2845E,0.10
+gemma3-27b,H100,gemma3-27b@H100,#FF6482,0.14
+llama3.3-70b,H100,llama3.3-70b@H100,#8E8E93,0.26
+yi-large,H100,yi-large@H100,#C0A0FF,0.30
+granite3-8b,H100,granite3-8b@H100,#5AC8FA,0.08

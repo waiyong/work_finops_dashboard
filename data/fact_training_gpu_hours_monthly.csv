@@ -1,0 +1,8 @@
+month,org_id,gpu_type,gpu_hours
+Jun,htx,B200,2400
+Jun,htx,H100,1100
+Jun,spf,H100,600
+Jun,scdf,H100,480
+Jun,cnb,H100,240
+Jun,prisons,H100,120
+Jun,mhq,H100,60

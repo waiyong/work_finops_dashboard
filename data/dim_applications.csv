@@ -1,0 +1,13 @@
+app_id,app_name,org_id,team_id,team_alias
+htx-ai-platform,ai-platform,htx,team_9a3f1c2e,htx-ai-platform
+htx-ai-infra,ai-infra,htx,team_b7e42d10,htx-ai-infra
+htx-code-assist,code-assist-users,htx,team_c3a9f184,htx-code-assist
+spf-code-assist,code-assist-users,spf,team_d4b8e2a7,spf-code-assist
+scdf-code-assist,code-assist-users,scdf,team_e5c7a3b9,scdf-code-assist
+cnb-code-assist,code-assist-users,cnb,team_f6d6b4c1,cnb-code-assist
+prisons-general,General,prisons,team_07e5c5d2,prisons-general
+mhq-general,General,mhq,team_18f4d6e3,mhq-general
+ent-teammate,Teammate,enterprise,team_29a3e7f4,ent-teammate
+ent-paperwork,Paperwork,enterprise,team_3ab2f805,ent-paperwork
+ent-notetaker,NoteTaker,enterprise,team_4bc11916,ent-notetaker
+ent-genie,Genie,enterprise,team_5cd21a27,ent-genie

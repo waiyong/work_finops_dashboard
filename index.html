@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MHA GPU Farm Utilization Dashboard — AI Platform Team</title>
+<!-- Chart.js + plugins served locally from lib/ → dashboard works fully offline -->
+<script src="lib/chart.umd.min.js"></script>
+<script src="lib/chartjs-plugin-annotation.min.js"></script>
+<script src="lib/chartjs-plugin-datalabels.min.js"></script>
+<style>
+  :root{
+    --bg:#FBFBFD; --panel:#FFFFFF; --ink:#1D1D1F; --muted:#86868B;
+    --accent:#0071E3; --accent-soft:#E8F1FD; --warn:#D98A2B; --warn-soft:#FBEFDD;
+    --hairline:#E5E5EA; --grid:#F0F0F2; --good:#248A3D; --bad:#CE2C1E;
+    --shadow:0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04);
+    --font:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);
+    -webkit-font-smoothing:antialiased;line-height:1.45;}
+  .wrap{max-width:1360px;margin:0 auto;padding:32px 36px 72px;}
+
+  /* Header */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;}
+  .title h1{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0;}
+  .title .team{display:inline-block;margin-top:6px;font-size:12px;font-weight:600;
+    color:var(--accent);background:var(--accent-soft);padding:3px 10px;border-radius:20px;letter-spacing:.01em;}
+  .head-right{display:flex;align-items:center;gap:18px;}
+  .updated{font-size:12.5px;color:var(--muted);text-align:right;}
+  .seg{display:inline-flex;background:#F1F1F4;border-radius:10px;padding:3px;}
+  .seg button{border:0;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;
+    color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;transition:.15s;}
+  .seg button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .seg button:disabled{opacity:.34;cursor:not-allowed;}
+
+  /* Exec summary */
+  .exec{margin:22px 0 26px;padding:16px 20px;background:var(--panel);border:1px solid var(--hairline);
+    border-radius:14px;font-size:14.5px;color:#3a3a3c;display:flex;gap:12px;align-items:flex-start;box-shadow:var(--shadow);}
+  .exec .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px;}
+  .exec b{color:var(--ink);font-weight:600;}
+  .exec .batch{color:var(--warn);font-weight:600;}
+
+  /* KPI row */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:28px 0 26px;}
+  .kpi{background:var(--panel);border:1px solid var(--hairline);border-radius:16px;padding:20px 22px;box-shadow:var(--shadow);}
+  .kpi .label{font-size:12.5px;color:var(--muted);font-weight:600;letter-spacing:.01em;}
+  .kpi .val{font-size:42px;font-weight:700;letter-spacing:-.03em;margin:6px 0 2px;line-height:1;}
+  .kpi .sub{font-size:12.5px;color:var(--muted);}
+  .kpi .sub.below{color:var(--warn);font-weight:600;}
+  .kpi .sub.up{color:var(--good);font-weight:600;}
+  .kpi .val.good{color:var(--good);}  .kpi .sub.good{color:var(--good);font-weight:600;}
+  .kpi .val.warn{color:var(--warn);}  .kpi .sub.warn{color:var(--warn);font-weight:600;}
+  .kpi .val.bad{color:var(--bad);}    .kpi .sub.bad{color:var(--bad);font-weight:600;}
+
+  /* Rows / panels */
+  .row{display:grid;gap:18px;margin-bottom:18px;}
+  .row.r1{grid-template-columns:1.55fr 1fr;}
+  .row.r3{grid-template-columns:1fr 1fr;}
+  .row.full{grid-template-columns:1fr;}
+  .panel{background:var(--panel);border:1px solid var(--hairline);border-radius:16px;padding:20px 22px;box-shadow:var(--shadow);position:relative;}
+  .panel h2{font-size:16px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .panel .subtitle{font-size:12.5px;color:var(--muted);margin:3px 0 0;}
+  .badge{position:absolute;top:18px;right:20px;font-size:11px;font-weight:600;color:var(--muted);
+    background:#F3F3F5;border-radius:20px;padding:4px 11px;border:1px solid var(--hairline);}
+  .badge.pending{color:var(--warn);background:var(--warn-soft);border-color:#F0DDC0;}
+  .chartbox{position:relative;width:100%;}
+  .footnote{font-size:12px;color:var(--muted);margin-top:12px;}
+  .footnote b{color:var(--ink);}
+  .callout{margin-top:12px;font-size:12px;color:var(--warn);background:var(--warn-soft);
+    border-radius:10px;padding:9px 12px;border:1px solid #F0DDC0;}
+
+  /* Fleet avg strip (Viz1) */
+  .fleetavg{margin-top:14px;padding-top:14px;border-top:1px solid var(--hairline);
+    display:flex;align-items:baseline;gap:10px;}
+  .fleetavg .big{font-size:30px;font-weight:700;letter-spacing:-.02em;}
+  .fleetavg .lab{font-size:12.5px;color:var(--muted);}
+  .fleetavg .tgt{margin-left:auto;font-size:12.5px;color:var(--muted);}
+
+  /* Bridge caption */
+  .bridge{grid-column:1 / -1;margin:-2px 0 14px;font-size:12.5px;color:#3a3a3c;
+    background:var(--accent-soft);border:1px solid #D5E6FB;border-radius:12px;padding:11px 16px;}
+  .bridge b{color:var(--accent);}
+
+  /* Donut center */
+  .donutwrap{display:flex;align-items:center;gap:18px;}
+  .donutbox{position:relative;width:190px;flex:0 0 auto;}
+  .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .donut-center .pct{font-size:34px;font-weight:700;letter-spacing:-.02em;}
+  .donut-center .of{font-size:12px;color:var(--muted);}
+  .clusterlist{flex:1;}
+  .clusterlist .crow{display:flex;justify-content:space-between;align-items:baseline;
+    padding:9px 0;border-bottom:1px solid var(--hairline);font-size:13.5px;}
+  .clusterlist .crow:last-child{border-bottom:0;}
+  .clusterlist .cname{font-weight:600;}
+  .clusterlist .cnum{color:var(--muted);}
+  .clusterlist .cpct{font-weight:700;}
+  .clusterlist .cpct.below{color:var(--warn);}
+  .clusterlist .crow.click{cursor:pointer;border-radius:7px;transition:background .12s;}
+  .clusterlist .crow.click:hover{background:#F5F5F7;}
+  .clusterlist .crow.active{background:var(--accent-soft);}
+  .cnamewrap{display:flex;align-items:center;gap:7px;}
+  .cdot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
+  .focushint{color:var(--accent);font-weight:600;}
+  .mapgrids.solo{grid-template-columns:1fr;}
+
+  /* Card map */
+  .mapgrids{display:grid;grid-template-columns:1.8fr 1fr;gap:28px;margin-top:8px;transition:opacity .18s ease;}
+  .mapcluster .chead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}
+  .mapcluster .ct{font-weight:650;font-size:14px;}
+  .mapcluster .cs{font-size:12px;color:var(--muted);}
+  .mblocks{display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;}
+  .mblock{display:flex;flex-direction:column;gap:7px;padding:9px 11px 10px;border-radius:11px;
+    background:#FAFAFC;border:1px solid var(--hairline);}
+  .mblock.idle{background:transparent;border-style:dashed;border-color:#D2D2D7;}
+  .mbhead{display:flex;align-items:center;gap:6px;}
+  .mbdot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
+  .mbname{font-size:11.5px;font-weight:650;color:var(--ink);white-space:nowrap;letter-spacing:-.01em;}
+  .mbcount{font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;}
+  .mbcells{display:flex;flex-wrap:wrap;gap:4px;max-width:230px;}
+  .mc{width:22px;height:22px;border-radius:5px;flex:0 0 auto;transition:transform .1s;}
+  .mc:hover{transform:scale(1.16);box-shadow:0 2px 8px rgba(0,0,0,.2);}
+  .mblock.idle .mc{background:transparent;border:1.5px dashed #CFCFD4;}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:18px;padding-top:16px;border-top:1px solid var(--hairline);}
+  .legend .li{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#3a3a3c;}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto;}
+  .legend .li.idle .sw{background:transparent;border:1.5px dashed #CFCFD4;}
+
+  /* Token toggle + detail */
+  .toggle{display:inline-flex;background:#F1F1F4;border-radius:9px;padding:3px;margin-left:auto;}
+  .toggle button{border:0;background:transparent;font-family:var(--font);font-size:12px;font-weight:600;
+    color:var(--muted);padding:5px 12px;border-radius:7px;cursor:pointer;}
+  .toggle button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .paneltop{display:flex;align-items:center;gap:12px;}
+  .toktools{display:flex;justify-content:flex-end;margin-top:8px;}
+  .detail{margin-top:12px;font-size:12.5px;color:#3a3a3c;background:#FAFAFC;border:1px solid var(--hairline);
+    border-radius:10px;padding:12px 14px;min-height:42px;}
+  .detail .dh{font-weight:650;color:var(--ink);margin-bottom:6px;}
+  .detail table{width:100%;border-collapse:collapse;}
+  .detail td{padding:3px 0;}
+  .detail td.r{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .detail .team{font-weight:600;padding-top:7px;}
+  .hint{color:var(--muted);}
+  /* Viz 5 cost comparison table */
+  .costtable table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
+  .costtable th,.costtable td{padding:10px 14px;text-align:right;font-size:13.5px;border-bottom:1px solid var(--hairline);white-space:nowrap;}
+  .costtable th{color:var(--muted);font-weight:600;font-size:11.5px;letter-spacing:.02em;}
+  .costtable th:first-child,.costtable td:first-child{text-align:left;}
+  .costtable td.model{font-weight:600;color:var(--ink);}
+  .costtable th.ours,.costtable td.ours{background:rgba(0,113,227,.05);}
+  .costtable th.ours{color:var(--accent);}
+  .costtable td.cheapest{font-weight:700;color:var(--good);}
+  .costtable td .muted{color:var(--muted);}
+  .costtable tr:last-child td{border-bottom:none;}
+  /* Viz 4 compute explorer */
+  .cmpentry{display:flex;gap:14px;margin:16px 0 4px;}
+  .cmpseg{flex:1;display:flex;flex-direction:column;gap:7px;text-align:left;font:inherit;cursor:pointer;
+    background:var(--panel);border:1px solid var(--hairline);border-radius:12px;padding:14px 18px;transition:border-color .15s,box-shadow .15s;}
+  .cmpseg:hover{border-color:#C7C7CC;}
+  .cmpseg.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,113,227,.12);}
+  .cmpseg[data-view="training"].active{border-color:var(--warn);box-shadow:0 0 0 2px rgba(217,138,43,.14);}
+  .cmpseg-lab{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+  .cmpseg-val{font-size:25px;font-weight:650;color:var(--ink);}
+  .cmpseg-val .u{font-size:13px;color:var(--muted);font-weight:500;}
+  .cmpseg-bar{height:5px;border-radius:3px;background:#EDEDF0;overflow:hidden;}
+  .cmpseg-bar i{display:block;height:100%;background:var(--accent);}
+  .cmpseg[data-view="training"] .cmpseg-bar i{background:var(--warn);}
+  .cmpseg-pct{font-size:11px;color:var(--muted);}
+  .cmphint{font-size:12px;color:var(--muted);margin:10px 2px 2px;}
+  .costtable tr.expander{cursor:pointer;}
+  .costtable tr.expander:hover{background:#FAFAFB;}
+  .costtable tr.lvl0 td:first-child{font-weight:600;color:var(--ink);}
+  .costtable tr.lvl1 td:first-child{padding-left:36px;font-weight:500;}
+  .costtable tr.lvl2 td:first-child{padding-left:58px;color:var(--muted);}
+  .costtable tr.total td{font-weight:700;border-top:2px solid var(--hairline);border-bottom:none;}
+  .costtable .chev{display:inline-block;width:0;height:0;margin-right:8px;vertical-align:middle;
+    border-left:5px solid var(--muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s;}
+  .costtable .chev.open{transform:rotate(90deg);}
+  .costtable .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle;}
+
+  @media (max-width:1120px){
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    .row.r1,.row.r3{grid-template-columns:1fr;}
+    .mapgrids{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title">
+      <h1>MHA GPU Farm Utilization Dashboard</h1>
+      <span class="team">AI Platform Team</span>
+    </div>
+    <div class="head-right">
+      <div class="updated">Last updated<br>17 Jun 2026 · 09:42 SGT</div>
+      <div class="seg" id="envSeg" title="Data cluster">
+        <button data-env="all" class="active">All</button>
+        <button data-env="all">L1</button>
+        <button class="soon" disabled title="Not yet available">L2</button>
+        <button class="soon" disabled title="Not yet available">L3</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <!-- Row 1 -->
+  <div class="row r1">
+    <div class="panel">
+      <h2>GPU Utilization — Top 5 Models</h2>
+      <p class="subtitle" id="dutySub">% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT) · last 14 days</p>
+      <div class="chartbox" style="height:260px;margin-top:10px;"><canvas id="dutyChart"></canvas></div>
+      <div class="fleetavg">
+        <span class="big" id="fleetAvg">60%</span>
+        <span class="lab">Fleet GPU-weighted avg duty cycle</span>
+        <span class="tgt">target 80%</span>
+      </div>
+    </div>
+
+    <div class="panel" id="loadedDonutPanel">
+      <h2>GPUs with Models Loaded</h2>
+      <p class="subtitle">Distinct GPU cards serving a model ÷ total cards · live snapshot · click a cluster to focus the map below</p>
+      <div class="donutwrap" style="margin-top:18px;">
+        <div class="donutbox">
+          <canvas id="loadedDonut" height="190"></canvas>
+          <div class="donut-center"><span class="pct">88%</span><span class="of">44 / 50 loaded</span></div>
+        </div>
+        <div class="clusterlist">
+          <div class="crow click" data-cluster="B200"><span class="cnamewrap"><span class="cdot" style="background:#0071E3"></span><span class="cname">SUPERPOD · B200</span></span><span class="cnum" id="rowB200num"></span><span class="cpct" id="rowB200pct"></span></div>
+          <div class="crow click" data-cluster="H100"><span class="cnamewrap"><span class="cdot" style="background:#30B0C7"></span><span class="cname">PROD · H100</span></span><span class="cnum" id="rowH100num"></span><span class="cpct" id="rowH100pct"></span></div>
+          <div class="crow click active" data-cluster="all"><span class="cnamewrap"><span class="cdot" style="background:#EDEDF0;border:1px solid var(--hairline)"></span><span class="cname">Combined</span></span><span class="cnum" id="rowAllnum"></span><span class="cpct" id="rowAllpct"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bridge -->
+  <div class="bridge"><b>Loaded ≠ utilized.</b> A card can have a model loaded yet sit idle: <b id="bridgeLoaded">—</b> of cards are loaded, but only <b id="bridgeDuty">—</b> are actively serving in business hours. Closing that gap is the platform team's core lever.</div>
+
+  <!-- Row 2: card map -->
+  <div class="row full">
+    <div class="panel" id="cardMapPanel">
+      <h2>GPU Card Allocation Map</h2>
+      <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · live snapshot<span id="mapFocusHint" class="focushint"></span></p>
+      <div class="mapgrids" id="mapGrids">
+        <div class="mapcluster" id="clusterB200">
+          <div class="chead"><span class="ct">SUPERPOD · B200</span><span class="cs">192GB/card · 28 of 32 loaded</span></div>
+          <div class="mblocks" id="gridB200"></div>
+        </div>
+        <div class="mapcluster" id="clusterH100">
+          <div class="chead"><span class="ct">PROD · H100</span><span class="cs">80GB/card · 16 of 18 loaded</span></div>
+          <div class="mblocks" id="gridH100"></div>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+
+  <!-- GPU utilization by workload (stacked area, full width) -->
+  <div class="row full">
+    <div class="panel">
+      <h2>Utilization by Workload</h2>
+      <p class="subtitle">GPU card-hours consumed ÷ available, by workload · % of farm capacity · weekly · Jan–Jun 2026</p>
+      <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
+      <div class="fleetavg">
+        <span class="big" id="farmUtilNow">—</span>
+        <span class="lab" id="farmUtilLab">farm GPU-hour utilization</span>
+        <span class="tgt" id="farmUtilTgt">target 85%</span>
+      </div>
+      <div class="footnote"><b>GPU-hours = card-time</b> (derived from K8s/Slurm allocation — not a DCGM metric). Denominator = whole farm (50 inference + 8 training cards × 24h). <b>Total utilization rises</b> as the <b>idle</b> band shrinks; <b>Batch Inference</b> (in pipeline) runs after office hours to soak up otherwise-idle cards. <span id="dcgmIntensity"></span></div>
+    </div>
+  </div>
+
+  <!-- Token Output by Model (full width) -->
+  <div class="row full">
+    <div class="panel">
+      <h2>Token Output by Model</h2>
+      <p class="subtitle">Output tokens by model · weekly · Jan–Jun 2026</p>
+      <div class="chartbox" style="height:300px;margin-top:10px;"><canvas id="modelTokenChart"></canvas></div>
+      <div class="footnote">Weekly output-token generation per served model. The stacked total shows fleet throughput <b>growing ~70% over the period</b>; week-to-week peaks shift as demand moves between models. A model-level lens on the same throughput shown by HTD below.</div>
+    </div>
+  </div>
+
+  <!-- Compute Usage & Cost by Organisation (full width) -->
+  <div class="row full">
+    <div class="panel">
+      <h2>Compute Usage &amp; Cost by Organisation</h2>
+      <p class="subtitle">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
+      <div class="cmpentry" id="cmpEntry"></div>
+      <div class="cmphint" id="cmpHint"></div>
+      <div id="cmpDrill" class="costtable"></div>
+    </div>
+  </div>
+
+  <!-- Row 4 -->
+  <div class="row full">
+    <div class="panel">
+      <h2>Cost per Million Tokens vs Open-Model Cloud Host</h2>
+      <p class="subtitle">Output USD per 1M tokens · indicative</p>
+      <div id="costTable" class="costtable" style="margin-top:12px;"></div>
+      <div class="fleetavg" id="costSavingsRow">
+        <span class="big" id="costSavings">—</span>
+        <span class="lab">cheaper than the cheapest external host (token-weighted across top-5 models)</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Normalized dataset lives in data/*.csv; rollup.js aggregates it into the
+     render globals. Edit the CSVs to swap in real data — no code change. -->
+<script src="rollup.js?v=4"></script>
+<script>
+/* ===================== SETUP ===================== */
+Chart.register(window['chartjs-plugin-annotation']);
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.font.size = 12;
+Chart.defaults.color = '#86868B';
+Chart.defaults.plugins.tooltip.backgroundColor = '#1D1D1F';
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 8;
+Chart.defaults.plugins.tooltip.titleFont = {weight:'600'};
+const ACCENT='#0071E3', WARN='#D98A2B', INK='#1D1D1F', GRID='#F0F0F2';
+
+/* ---- KPI cards ---- */
+function kpiStatus(actual, target){            // green / amber / red by distance to target
+  if(actual >= target) return 'good';
+  if(actual >= target - KPI_MARGIN) return 'warn';
+  return 'bad';
+}
+function tokenTotals(){                          // fleet output tokens: latest vs previous month
+  const i = MONTHS.length - 1;
+  const cur = OUTPUT_FLEET[i], prev = OUTPUT_FLEET[i-1];
+  return {cur, prev, curM: MONTHS[i], prevM: MONTHS[i-1], mom: (cur - prev) / prev * 100};
+}
+function renderKPIs(env){
+  const k = KPI[env];
+  const dS = kpiStatus(parseFloat(k.duty),   DUTY_TARGET);
+  const lS = kpiStatus(parseFloat(k.loaded), LOADED_TARGET);
+  const t = tokenTotals();
+  const tCls = t.mom >= 0 ? 'up' : 'bad';
+  const momStr = (t.mom >= 0 ? '↑ ' : '↓ ') + Math.abs(t.mom).toFixed(1) + '% MoM';
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">GPU Utilization</div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
+    <div class="kpi"><div class="label">GPUs Loaded</div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
+    <div class="kpi"><div class="label">Monthly Tokens (output)</div><div class="val">${t.cur}M</div><div class="sub ${tCls}">${momStr} vs ${t.prev}M ${t.prevM}</div></div>`;
+}
+
+/* ---- Viz 1: Duty cycle ---- */
+let dutyChart;
+function dutyData(env){
+  let pool = MODELS;
+  if(env==='superpod') pool = MODELS.filter(m=>m.cluster==='B200');
+  if(env==='prod')     pool = MODELS.filter(m=>m.cluster==='H100');
+  const top5 = [...pool].sort((a,b)=>b.duty-a.duty).slice(0,5);
+  const wsum = pool.reduce((s,m)=>s+m.duty*m.cards,0);
+  const csum = pool.reduce((s,m)=>s+m.cards,0);
+  return {top5, avg: Math.round(wsum/csum)};
+}
+function renderDuty(env){
+  const {top5, avg} = dutyData(env);
+  document.getElementById('fleetAvg').textContent = avg+'%';
+  const labels = top5.map(m=>m.name);
+  const vals = top5.map(m=>m.duty);
+  const colors = vals.map(v=> v>=80 ? ACCENT : WARN);
+  const cfg = {
+    type:'bar',
+    data:{labels, datasets:[{data:vals, backgroundColor:colors, borderRadius:6, barThickness:24}]},
+    options:{
+      indexAxis:'y', maintainAspectRatio:false,
+      layout:{padding:{right:34}},
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:c=>` Duty cycle: ${c.raw}%`}},
+        annotation:{annotations:{tgt:{type:'line',xMin:80,xMax:80,borderColor:'#C7C7CC',
+          borderWidth:1.5,borderDash:[5,4],label:{display:true,content:'80% target',position:'start',
+          backgroundColor:'rgba(0,0,0,0)',color:'#86868B',font:{size:10,weight:'600'},yAdjust:-2}}}},
+        datalabels:{anchor:'end',align:'end',color:INK,font:{weight:'700',size:12},formatter:v=>v+'%'}
+      },
+      scales:{
+        x:{min:0,max:100,grid:{color:GRID,drawBorder:false},ticks:{callback:v=>v+'%'}},
+        y:{grid:{display:false,drawBorder:false},ticks:{color:INK,font:{weight:'600',size:12.5}}}
+      }
+    },
+    plugins:[ChartDataLabels]
+  };
+  if(dutyChart){ dutyChart.data=cfg.data; dutyChart.options=cfg.options; dutyChart.update(); }
+  else dutyChart = new Chart(document.getElementById('dutyChart'), cfg);
+}
+
+/* ---- Viz 3a: Loaded donut (split by cluster; click to focus the card map) ---- */
+const CLU_COLOR = {B200:'#0071E3', H100:'#30B0C7', idle:'#EDEDF0'};
+const CLU_FADE  = {B200:'rgba(0,113,227,.16)', H100:'rgba(48,176,199,.16)', idle:'#F4F4F6'};
+let supLoaded, prodLoaded, idleCards, loadedDonut;
+function pctStr(a,b){ const p=a/b*100; return (p%1===0? p : p.toFixed(1))+'%'; }
+function renderDonut(){
+  supLoaded  = MODELS.filter(m=>m.cluster==='B200').reduce((s,m)=>s+m.cards,0);
+  prodLoaded = MODELS.filter(m=>m.cluster==='H100').reduce((s,m)=>s+m.cards,0);
+  idleCards  = (CLUSTER_TOTAL.B200 + CLUSTER_TOTAL.H100) - supLoaded - prodLoaded;
+  loadedDonut = new Chart(document.getElementById('loadedDonut'),{
+    type:'doughnut',
+    data:{labels:['SUPERPOD','PROD','Idle'],datasets:[{data:[supLoaded,prodLoaded,idleCards],
+      backgroundColor:[CLU_COLOR.B200,CLU_COLOR.H100,CLU_COLOR.idle],borderWidth:0,circumference:360}]},
+    options:{cutout:'72%',maintainAspectRatio:false,
+      onClick:(e,els,chart)=>{
+        let idx;
+        if(els.length){ idx=els[0].index; }
+        else{                               // forgiving: pick the segment the click points toward (even the hole)
+          const a=chart.chartArea, cx=(a.left+a.right)/2, cy=(a.top+a.bottom)/2;
+          let ang=Math.atan2(e.x-cx, cy-e.y); if(ang<0) ang+=2*Math.PI;
+          const d=chart.data.datasets[0].data, tot=d.reduce((s,v)=>s+v,0);
+          let cum=0; idx=d.length-1;
+          for(let i=0;i<d.length;i++){ cum+=d[i]/tot; if(ang/(2*Math.PI)<=cum){ idx=i; break; } }
+        }
+        setMapFocus(idx===0?'B200':idx===1?'H100':'all');
+      },
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=> c.dataIndex===2 ? ` Idle: ${c.raw} cards` : ` ${c.label}: ${c.raw} cards loaded`}}}}
+  });
+  updateDonutCenter('all');
+}
+function updateDonutCenter(focus){
+  const c=document.querySelector('.donut-center');
+  const m={B200:[supLoaded,CLUSTER_TOTAL.B200], H100:[prodLoaded,CLUSTER_TOTAL.H100]};
+  const [a,b]= m[focus] || [supLoaded+prodLoaded, CLUSTER_TOTAL.B200+CLUSTER_TOTAL.H100];
+  c.querySelector('.pct').textContent=pctStr(a,b);
+  c.querySelector('.of').textContent=a+' / '+b+' loaded';
+}
+function paintDonut(focus){              // dim the non-selected arcs for instant feedback
+  const sel=k=> (focus==='all'||focus===k) ? CLU_COLOR[k] : CLU_FADE[k];
+  loadedDonut.data.datasets[0].backgroundColor=[sel('B200'),sel('H100'),
+    focus==='all'?CLU_COLOR.idle:CLU_FADE.idle];
+  loadedDonut.update();
+}
+let mapFocus='all', mapTimer;
+function setMapFocus(focus){             // 'B200' | 'H100' | 'all' (=both)
+  if(mapFocus===focus) return;          // no-op (and no flicker) if unchanged
+  mapFocus=focus;
+  document.querySelectorAll('.clusterlist .crow[data-cluster]').forEach(r=>
+    r.classList.toggle('active', r.dataset.cluster===focus));
+  document.getElementById('mapFocusHint').textContent =
+    focus==='all' ? '' : ('  ·  showing '+(focus==='B200'?'SUPERPOD':'PROD')+' only — click elsewhere for both');
+  updateDonutCenter(focus);
+  paintDonut(focus);
+  const grids=document.getElementById('mapGrids');
+  grids.style.opacity='0';              // fade out → swap → fade in
+  clearTimeout(mapTimer);
+  mapTimer=setTimeout(()=>{
+    document.getElementById('clusterB200').style.display=(focus==='all'||focus==='B200')?'':'none';
+    document.getElementById('clusterH100').style.display=(focus==='all'||focus==='H100')?'':'none';
+    grids.classList.toggle('solo', focus!=='all');
+    grids.style.opacity='1';
+    if(focus!=='all') document.getElementById('cardMapPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
+  },180);
+}
+document.querySelectorAll('.clusterlist .crow[data-cluster]').forEach(r=>
+  r.addEventListener('click',()=>setMapFocus(r.dataset.cluster)));
+document.addEventListener('click',e=>{   // click outside donut & map → reset to both
+  if(!e.target.closest('#loadedDonutPanel') && !e.target.closest('#cardMapPanel')) setMapFocus('all');
+});
+
+/* ---- Viz 3b: Card allocation map ---- */
+function buildGrid(cluster, elId){
+  const el = document.getElementById(elId);
+  const models = MODELS.filter(m=>m.cluster===cluster);
+  const loaded = models.reduce((s,m)=>s+m.cards,0);
+  const idle = CLUSTER_TOTAL[cluster]-loaded;
+  const mem = cluster==='B200'?'192GB':'80GB';
+  let n=0, html='';
+  models.forEach(m=>{
+    let cells='';
+    for(let i=0;i<m.cards;i++){ n++;
+      cells+=`<span class="mc" style="background:${m.color}" title="${m.name} · ${cluster} card #${String(n).padStart(2,'0')} · ${mem} · duty ${m.duty}%"></span>`;
+    }
+    html+=`<div class="mblock"><div class="mbhead"><span class="mbdot" style="background:${m.color}"></span>`
+        + `<span class="mbname">${m.name}</span><span class="mbcount">${m.cards} card${m.cards>1?'s':''}</span></div>`
+        + `<div class="mbcells">${cells}</div></div>`;
+  });
+  if(idle>0){
+    let cells='';
+    for(let i=0;i<idle;i++){ n++;
+      cells+=`<span class="mc" title="Idle — no model loaded · ${cluster} card #${String(n).padStart(2,'0')} · ${mem}"></span>`;
+    }
+    html+=`<div class="mblock idle"><div class="mbhead"><span class="mbname">Idle</span>`
+        + `<span class="mbcount">${idle} card${idle>1?'s':''}</span></div><div class="mbcells">${cells}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+function buildLegend(){
+  document.getElementById('legend').innerHTML =
+    `<span class="li"><span class="sw" style="background:#EDEDF0;border:1px solid var(--hairline)"></span>Each block = one model · squares inside = its GPU cards</span>`
+  + `<span class="li idle"><span class="sw"></span>Dashed = idle (unallocated)</span>`;
+}
+
+/* ---- Viz 2: GPU utilization by workload (stacked area, duty cycle %) ---- */
+const TEAL = '#30B0C7';
+function renderSplit(){
+  const W = WORKLOAD_WEEKS;
+  const band = (label,key,color,fill)=>({label,data:SPLIT[key],borderColor:color,backgroundColor:fill,
+    fill:true,stack:'u',tension:0,pointRadius:0,pointHoverRadius:4,_key:key});
+  const datasets=[
+    band('Inference','inference',ACCENT,'rgba(0,113,227,.80)'),
+    band('Training','training',WARN,'rgba(217,138,43,.82)'),
+    band('Batch Inference','batch',TEAL,'rgba(48,176,199,.82)'),
+    band('Idle','idle','#C7C7CC','rgba(120,120,128,.12)'),
+  ];
+  const fmt=n=>Math.round(n).toLocaleString();
+  const cap=i=>SPLIT_HOURS.capacity[i];
+  const hrs=(k,i)=> k==='idle' ? cap(i)-(SPLIT_HOURS.inference[i]+SPLIT_HOURS.training[i]+SPLIT_HOURS.batch[i]) : SPLIT_HOURS[k][i];
+  new Chart(document.getElementById('splitChart'),{
+    type:'line',
+    data:{labels:W,datasets},
+    options:{maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      elements:{line:{tension:0,borderWidth:1.5},point:{radius:0,hoverRadius:4}},
+      plugins:{
+        legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,padding:14}},
+        annotation:{annotations:{tgt:{type:'line',yMin:FARM_UTIL.target,yMax:FARM_UTIL.target,
+          borderColor:'#86868B',borderWidth:1.25,borderDash:[5,4],
+          label:{display:true,content:'target '+FARM_UTIL.target+'%',position:'end',
+            backgroundColor:'rgba(0,0,0,0)',color:'#86868B',font:{size:10,weight:'600'},yAdjust:-8}}}},
+        tooltip:{position:'cursorRight',xAlign:'left',yAlign:'center',caretSize:0,
+          callbacks:{
+            title:items=>'Week of '+W[items[0].dataIndex],
+            label:c=>` ${c.dataset.label}: ${c.raw}%  ·  ${fmt(hrs(c.dataset._key,c.dataIndex))} GPU-hrs`,
+            footer:items=>{const i=items[0].dataIndex,u=SPLIT.inference[i]+SPLIT.training[i]+SPLIT.batch[i];
+              return 'Utilization '+Math.round(u)+'%  ·  '+fmt(hrs('inference',i)+hrs('training',i)+hrs('batch',i))+' / '+fmt(cap(i))+' GPU-hrs';}
+          }}
+      },
+      scales:{x:{grid:{display:false,drawBorder:false},ticks:{maxTicksLimit:13,font:{size:10.5},autoSkip:true}},
+        y:{stacked:true,min:0,max:100,grid:{color:GRID,drawBorder:false},title:{display:true,text:'% of farm GPU-hours'},ticks:{callback:v=>v+'%'}}}}
+  });
+  document.getElementById('farmUtilNow').textContent = FARM_UTIL.now+'%';
+  document.getElementById('farmUtilLab').textContent = 'farm GPU-hour utilization · up from '+FARM_UTIL.start+'% in Jan';
+  document.getElementById('farmUtilTgt').textContent = 'target '+FARM_UTIL.target+'%';
+  document.getElementById('dcgmIntensity').textContent =
+    'Busy cards ran at ~'+FARM_UTIL.intensity+'% DCGM utilization (compute intensity) — headroom for larger batches.';
+}
+
+/* ---- Viz 6: Token Output by Model (weekly stacked area) ---- */
+let modelTokenChart;
+// Tooltip positioner that follows the mouse, offset to its right so it never sits under the cursor.
+if(window.Chart && Chart.Tooltip && !Chart.Tooltip.positioners.cursorRight){
+  Chart.Tooltip.positioners.cursorRight = (items, evt) => ({ x: evt.x + 16, y: evt.y });
+}
+function renderModelTokens(){
+  const datasets = MODELS.map(m=>({
+    label:m.name,
+    data:MODEL_TOKENS[m.name]||[],
+    borderColor:m.color,
+    backgroundColor:m.color+'99',   // ~60% opacity fill
+    borderWidth:1.25,
+    fill:true, stack:'m',
+    tension:0,                                  // straight segments (no curve)
+    pointRadius:0, pointHoverRadius:4, pointHoverBorderWidth:2, pointHoverBorderColor:'#fff',
+  }));
+  modelTokenChart=new Chart(document.getElementById('modelTokenChart'),{
+    type:'line',
+    data:{labels:WEEKS,datasets},
+    options:{maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      elements:{line:{tension:0}},             // straight area boundaries like Utilization by Workload
+      plugins:{legend:{position:'bottom',labels:{boxWidth:9,boxHeight:9,usePointStyle:true,padding:9,font:{size:10.5}}},
+        tooltip:{position:'cursorRight',       // follow the mouse, offset to its right
+          xAlign:'left', yAlign:'center', caretSize:0, caretPadding:0,
+          itemSort:(a,b)=>b.raw-a.raw,
+          callbacks:{
+            title:items=>'Week of '+WEEKS[items[0].dataIndex],
+            label:c=>` ${c.dataset.label}: ${c.raw.toFixed(1)}M`,
+            footer:items=>'Fleet total: '+items.reduce((s,i)=>s+i.raw,0).toFixed(1)+'M tokens'
+          }}},
+      scales:{x:{grid:{display:false,drawBorder:false},ticks:{maxTicksLimit:13,font:{size:10.5},autoSkip:true}},
+        y:{stacked:true,min:0,grid:{color:GRID,drawBorder:false},title:{display:true,text:'Output Tokens (millions / week)'},ticks:{callback:v=>v+'M'}}}}
+  });
+}
+
+/* ---- Viz 4: Tokens by HTD ---- */
+/* ---- Viz 4: Compute Usage & Cost by Organisation (entry → drill) ---- */
+let cmpView = 'inference';        // 'inference' | 'training'
+const cmpExpanded = {};           // expanded org/app row keys
+const fmtM   = v => (Math.round(v*10)/10).toLocaleString(undefined,{maximumFractionDigits:1}) + 'M';
+const fmtUSD = v => '$' + Math.round(v).toLocaleString();
+
+function renderComputeEntry(){
+  const cs = COMPUTE_SPLIT, tot = (cs.inferenceHours + cs.trainingHours) || 1;
+  const seg = (key,label,hrs)=>{
+    const pct = Math.round(hrs/tot*100);
+    return `<button class="cmpseg ${cmpView===key?'active':''}" data-view="${key}">
+      <span class="cmpseg-lab">${label}</span>
+      <span class="cmpseg-val">${hrs.toLocaleString()} <span class="u">GPU-hrs</span></span>
+      <span class="cmpseg-bar"><i style="width:${pct}%"></i></span>
+      <span class="cmpseg-pct">${pct}% of allocated compute · ${cs.month}</span>
+    </button>`;
+  };
+  document.getElementById('cmpEntry').innerHTML =
+    seg('inference','Inference', cs.inferenceHours) + seg('training','Training', cs.trainingHours);
+  document.getElementById('cmpHint').textContent = cmpView==='inference'
+    ? 'Output tokens & internal cost by organisation → application → model. Click a row to expand.'
+    : 'Training GPU-hours & cost (GPU-hours × $/GPU-hour) by organisation.';
+}
+function renderInferenceTable(){
+  let h = '<table><thead><tr><th>Organisation → Application → Model</th><th>Output tokens</th><th>Cost (internal)</th></tr></thead><tbody>';
+  INFERENCE_TREE.forEach((o,oi)=>{
+    const ok='o'+oi, oe=!!cmpExpanded[ok];
+    h += `<tr class="lvl0 expander" data-key="${ok}"><td><span class="chev ${oe?'open':''}"></span><span class="dot" style="background:${o.color}"></span>${o.org}</td><td>${fmtM(o.tokens)}</td><td>${fmtUSD(o.cost)}</td></tr>`;
+    if(oe) o.apps.forEach((a,ai)=>{
+      const ak=ok+'a'+ai, ae=!!cmpExpanded[ak];
+      h += `<tr class="lvl1 expander" data-key="${ak}"><td><span class="chev ${ae?'open':''}"></span>${a.name}</td><td>${fmtM(a.tokens)}</td><td>${fmtUSD(a.cost)}</td></tr>`;
+      if(ae) a.models.forEach(m=>{
+        h += `<tr class="lvl2"><td>${m.name}</td><td>${fmtM(m.tokens)}</td><td>${fmtUSD(m.cost)}</td></tr>`;
+      });
+    });
+  });
+  const tt = INFERENCE_TREE.reduce((a,o)=>({t:a.t+o.tokens, c:a.c+o.cost}),{t:0,c:0});
+  h += `<tr class="total"><td>Total · all organisations</td><td>${fmtM(tt.t)}</td><td>${fmtUSD(tt.c)}</td></tr></tbody></table>`;
+  document.getElementById('cmpDrill').innerHTML = h;
+}
+function renderTrainingByOrg(){
+  let h = '<table><thead><tr><th>Organisation</th><th>Training GPU-hours</th><th>Cost</th></tr></thead><tbody>';
+  TRAINING_BY_ORG.forEach(o=>{
+    h += `<tr class="lvl0"><td><span class="dot" style="background:${o.color}"></span>${o.org}</td><td>${o.gpuHours.toLocaleString()}</td><td>${fmtUSD(o.cost)}</td></tr>`;
+  });
+  const tt = TRAINING_BY_ORG.reduce((a,o)=>({h:a.h+o.gpuHours, c:a.c+o.cost}),{h:0,c:0});
+  h += `<tr class="total"><td>Total</td><td>${tt.h.toLocaleString()}</td><td>${fmtUSD(tt.c)}</td></tr></tbody></table>`;
+  document.getElementById('cmpDrill').innerHTML = h;
+}
+function renderCompute(){
+  renderComputeEntry();
+  if(cmpView==='inference') renderInferenceTable(); else renderTrainingByOrg();
+}
+
+/* ---- Viz 5: Cost ---- */
+function renderCost(){
+  const provs = PRICING_PROVIDERS, isInt = p=>/internal/i.test(p);
+  const fmt = v => v==null ? '<span class="muted">—</span>' : '$'+v.toFixed(2);
+  let html = '<table><thead><tr><th>Model</th>';
+  provs.forEach(p=>{ html += `<th class="${isInt(p)?'ours':''}">${p}</th>`; });
+  html += '</tr></thead><tbody>';
+  COSTS.forEach(c=>{
+    const vals = provs.map(p=>c.prices[p]).filter(v=>v!=null);
+    const minv = vals.length ? Math.min.apply(null, vals) : null;
+    html += `<tr><td class="model">${c.model}</td>`;
+    provs.forEach(p=>{
+      const v = c.prices[p];
+      const cls = [isInt(p)?'ours':'', (v!=null && v===minv)?'cheapest':''].filter(Boolean).join(' ');
+      html += `<td class="${cls}">${fmt(v)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('costTable').innerHTML = html;
+  const row = document.getElementById('costSavingsRow');
+  if(COST_SAVINGS==null){ row.style.display='none'; }
+  else { row.style.display=''; document.getElementById('costSavings').textContent = COST_SAVINGS+'%'; }
+}
+
+/* ---- Narrative numbers (computed — no hand-typed figures) ---- */
+function setRow(key, loaded, total){
+  document.getElementById('row'+key+'num').textContent = loaded+' / '+total;
+  const pctEl = document.getElementById('row'+key+'pct');
+  pctEl.textContent = pctStr(loaded, total);
+  pctEl.classList.toggle('below', (loaded/total*100) < LOADED_TARGET);
+}
+function renderNarrative(){
+  const supL = MODELS.filter(m=>m.cluster==='B200').reduce((s,m)=>s+m.cards,0);
+  const proL = MODELS.filter(m=>m.cluster==='H100').reduce((s,m)=>s+m.cards,0);
+  const totB = CLUSTER_TOTAL.B200, totH = CLUSTER_TOTAL.H100;
+  const wsum = MODELS.reduce((s,m)=>s+m.duty*m.cards,0);
+  const csum = MODELS.reduce((s,m)=>s+m.cards,0);
+  setRow('B200', supL, totB);
+  setRow('H100', proL, totH);
+  setRow('All',  supL+proL, totB+totH);
+  document.getElementById('bridgeLoaded').textContent = pctStr(supL+proL, totB+totH);
+  document.getElementById('bridgeDuty').textContent   = Math.round(wsum/csum)+'%';
+  // cost savings headline is owned by renderCost() (handles the null/blank case)
+}
+
+/* ---- Interactivity ---- */
+let curEnv='all';
+document.getElementById('envSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b || !b.dataset.env) return;
+  curEnv=b.dataset.env;
+  [...e.currentTarget.children].forEach(c=>c.classList.toggle('active',c===b));
+  renderKPIs(curEnv); renderDuty(curEnv);
+  document.getElementById('dutySub').textContent =
+    (curEnv==='all'?'':(curEnv==='superpod'?'SUPERPOD (B200) · ':'PROD (H100) · ')) +
+    '% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT) · last 14 days';
+});
+// Viz 4 compute explorer: switch inference/training; expand/collapse rows.
+document.getElementById('cmpEntry').addEventListener('click',e=>{
+  const b=e.target.closest('.cmpseg'); if(!b) return;
+  cmpView=b.dataset.view; renderCompute();
+});
+document.getElementById('cmpDrill').addEventListener('click',e=>{
+  const row=e.target.closest('.expander'); if(!row) return;
+  cmpExpanded[row.dataset.key]=!cmpExpanded[row.dataset.key];
+  renderInferenceTable();
+});
+
+/* ---- Init (runs after rollup.js loads + aggregates the CSVs) ---- */
+DATA_READY.then(()=>{
+  renderKPIs('all');
+  renderDuty('all');
+  renderDonut();
+  renderNarrative();
+  buildGrid('B200','gridB200');
+  buildGrid('H100','gridH100');
+  buildLegend();
+  renderSplit();
+  renderModelTokens();
+  renderCompute();
+  renderCost();
+}).catch(err=>{
+  console.error(err);
+  document.body.insertAdjacentHTML('afterbegin',
+    '<div style="padding:14px 20px;background:#FDECEA;color:#CE2C1E;font:14px system-ui">'+
+    'Failed to load dashboard data: '+err.message+'. The dashboard must be served over HTTP — see RUN_DASHBOARD.md.</div>');
+});
+</script>
+</body>
+</html>

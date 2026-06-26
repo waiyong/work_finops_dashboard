@@ -1,0 +1,10 @@
+# Real production data pulled from Grafana/DCGM/LiteLLM — DO NOT publish.
+# Contains real hostnames, internal IPs, GPU UUIDs, agency team names,
+# and confidential model names. Kept local only.
+RAW_DATA/
+
+# Tooling / OS junk
+.playwright-mcp/
+.DS_Store
+__pycache__/
+*.pyc

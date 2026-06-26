@@ -1,0 +1,3 @@
+cluster_id,display_name,gpu_type,total_cards,card_memory_gb
+B200,SUPERPOD,B200,32,192
+H100,PROD,H100,18,80
