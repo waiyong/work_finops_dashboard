@@ -12,7 +12,7 @@
 > 3. 🟢 ETL blockers RESOLVED (§N update): pandas in `.venv`; tz fixed (localize SGT, browser=Malaysia UTC+8); both aggregation bugs fixed; dim joins repointed to real `dim_models_rebuilt`; workload capacity → 236. **All 4 scripts now run.**
 > 4. 🟡 Scripts run + output to `RAW_DATA/*_real.csv` (staging). Remaining: `fact_token_usage_monthly` empty until `dim_applications` rebuilt (§I); workload query needs `modelName` filter; gptoss dual-cluster duplication; input tokens not pulled.
 > 5. 🟢 Build `fact_card_snapshot` — DONE (staging): `RAW_DATA/fact_card_snapshot_real.csv`, 236 cards, Option A (untracked=`other@cluster`=loaded). Fleet 127/236 = 54% loaded (§M).
-> 6. ⬜ Swap staging dims/facts into `data/` once all real data is ready (don't overwrite live `data/*.csv` mid-migration — breaks coherence). Includes: real `dim_clusters` (216/20), `other` pseudo-model, rollup.js/index.html for 236 cards + MIG hover.
+> 6. 🟢 **Phase D DONE (§U)** — dashboard renders real data via **`index.html?data=real`** (gitignored `data_real/`); mock stays tracked & unchanged. 236-card map, real duty/donut/tokens/Viz4/Viz2(snapshot). Simulated-history patches dropped (adaptive). Remaining real-view gaps: Viz4 training (Slurm/E1), cost rates (C2), Viz2 single-snapshot.
 > 7. ⬜ Deferred schema/lineage doc updates once validated (§E)
 >
 > **Done so far:** ETL script filename + regex bugs fixed (§F); duty-cycle source decision (§A); real model list captured (§C); `dim_models` rebuilt w/ DCGM cluster auto-fill (§J,§L); curated pod→model map (§K); `fact_card_snapshot` parser built, Option A (§M).
