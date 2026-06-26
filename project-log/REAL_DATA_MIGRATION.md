@@ -525,10 +525,10 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 > **A1 follow-ups #3 and #4 are tracked elsewhere:** #3 (token data is 5-day smoke-test scale, not a full month) = **B3**; #4 (Viz 4 cost column is placeholder until governance rates set) = **C2**.
 
 ### B. Data-quality fixes (numbers wrong until done)
-- [ ] **B1.** `gptoss-120b` dual-cluster duplication — duty/tokens land on both `@B200`+`@H100`; needs a split rule. *(§N-update)*
-- [ ] **B2.** Re-pull `fact_workload_util` query with `modelName=~"NVIDIA B200|H100.*"` filter + clean window (current avg 43 vs 127 real loaded). *(§N-update)*
-- [ ] **B3.** Pull real production range (~6 months, not the 5-day smoke test) for Viz 6 trend + KPI MoM. *(§N-update)*
-- [ ] **B4.** (optional) Pull `input_tokens` queries — not rendered today.
+- [x] **B1.** `gptoss-120b` dual-cluster duplication — **DONE:** `model_primary_cluster()` in `pod_model_map.py` attributes proxy metrics to the primary cluster (most cards); 3 proxy ETL scripts rewired off the duplicating join. Verified: gptoss now `@B200` only in duty/token_weekly/token_usage. *(§N-update, §R)*
+- [ ] **B2.** `fact_workload_util` accuracy — **can't re-pull** (10-day retention, window expired). **Simulate** a reasonable, **trend-consistent** inference util (54% snapshot = loose sanity reference, NOT a hard anchor); keep corrected methodology documented. *(§R)*
+- [ ] **B3.** Token trend (Viz 6 weekly + KPI MoM) — **can't pull 6 months** (10-day retention). **Simulate** history anchored to real ~10-day volumes, keep methodology. Needs upstream persistence store for real history. *(§R)*
+- [x] **B4.** ~~Pull `input_tokens`~~ **DROPPED** — no visual renders input tokens; carried-but-unused column; retention concern. *(§R)*
 
 ### C. Dimension / config finalize
 - [ ] **C1.** `dim_clusters.csv` → real inventory B200 **216** / H100 **20** (was 32/18). *(§L)*
@@ -599,3 +599,19 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 - Confirms the §I blocker is cleared. `fact_token_usage_monthly_real.csv` written (staging).
 
 **Caveats still apply:** B1 (gptoss dual-cluster duplication visible in the output), B3 (5-day smoke scale, not a full month), C2 (cost still placeholder), A3 (team_id not yet pulled). All tracked in §O.
+
+---
+
+## R. Prometheus retention constraint (2026-06-26) — affects B2/B3/B4
+
+**Key constraint:** the Prometheus source retains only **~10 days** of data. Implications:
+- The Jun 15–19 smoke-test window is already partly **expired** — cannot be re-pulled.
+- **No historical depth** (no 6 months) is available from Prometheus directly.
+- The dashboard's **trend visuals** (Viz 2 weekly, Viz 6's 24 weeks, KPI 6-month MoM) cannot be fully real from Prometheus alone — they need the **upstream rollup store to accumulate over time** (the raw→intermediate persistence in `schema.md`). Until that exists: **simulate history with real anchors, keep the real methodology**.
+- **Point-in-time visuals CAN be real now** (card map, loaded %, 14-day duty).
+
+**B-group decisions under this constraint:**
+- **B2** (workload util) — keep the corrected query/methodology documented (`modelName=~"NVIDIA B200|H100.*"` + `[1w:1m]` × 24×7); **simulate a reasonable, trend-consistent inference util** — the 54% snapshot is a **loose sanity reference, not a hard anchor** (the value just needs to be plausible and consistent with the daily trend). Don't rely on re-pulling the expired window.
+- **B3** (6-month token trend) — **cannot pull 6 months**; simulate the Viz 6 weekly trend + KPI MoM, anchored to the real ~10 days of token volumes. Methodology (weekly `increase()` at 1w step) documented for when retention/persistence allows.
+- **B4** (input tokens) — **DROPPED.** No current visual renders input tokens (Viz 4 output-only; `input_tokens_m` is a carried-but-unused column). Given retention concerns, not worth pulling.
+- **B1** (gptoss dual-cluster split) — unaffected by retention; pure ETL fix, do now.
