@@ -2,6 +2,8 @@
 
 > **Active tracker** for replacing the simulated `data/*.csv` with real data pulled from Grafana. Started 2026-06-25. This is the live working doc — outstanding tasks, decisions, and ETL bugs. (For the durable project history see `PROJECT_LOG.md`; for schema/lineage see `schema.md` / `metric_lineage.md`.)
 >
+> 👉 **The single consolidated, tickable to-do list is §O (CONSOLIDATED OUTSTANDING CHECKLIST) at the bottom** — groups A–F. The status below is the high-level summary; lettered sections A–N hold the detail.
+>
 > **Quick status — what's blocking a working dashboard on real data:**
 > 1. 🟢 Rebuild `dim_models.csv` — DONE (staging): `RAW_DATA/dim_models_rebuilt.csv`, **26 rows, cluster_id auto-filled from DCGM** (§K, §L). Only 2 TODO rows (qwen3-coder-next, phoenix-1-0-small — not in snapshot) + admin to set real costs.
 > 2. ⬜ Rebuild `dim_applications.csv` + `dim_organizations.csv` from real teams; simulate org mapping (§I)
@@ -508,3 +510,49 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 5. Outputs are **staging** (`_real.csv`); the swap into `data/` (with real `dim_clusters`, `other` pseudo-model, rollup.js/index.html changes) is still the separate later stage (status #6).
 
 **To run the ETL:**  `.venv/bin/python RAW_DATA/fact_duty_daily.py`  (and the other 3).
+
+---
+
+## O. CONSOLIDATED OUTSTANDING CHECKLIST — for the dashboard to run on real data
+
+> Single source of truth for what's left. Grouped + ordered. Tick as done. (Detail lives in the lettered sections referenced.)
+
+### A. Blocks real data flowing (must-do)
+- [ ] **A1.** Rebuild `dim_applications.csv` + `dim_organizations.csv` from the 35 real teams → unblocks `fact_token_usage_monthly` (Viz 4 + token KPI). *(§I)*
+- [ ] **A2.** Decide org attribution — `org_alias` not configured in LiteLLM. Either configure it, or approve a manual team→org map. *(§I)*
+
+### B. Data-quality fixes (numbers wrong until done)
+- [ ] **B1.** `gptoss-120b` dual-cluster duplication — duty/tokens land on both `@B200`+`@H100`; needs a split rule. *(§N-update)*
+- [ ] **B2.** Re-pull `fact_workload_util` query with `modelName=~"NVIDIA B200|H100.*"` filter + clean window (current avg 43 vs 127 real loaded). *(§N-update)*
+- [ ] **B3.** Pull real production range (~6 months, not the 5-day smoke test) for Viz 6 trend + KPI MoM. *(§N-update)*
+- [ ] **B4.** (optional) Pull `input_tokens` queries — not rendered today.
+
+### C. Dimension / config finalize
+- [ ] **C1.** `dim_clusters.csv` → real inventory B200 **216** / H100 **20** (was 32/18). *(§L)*
+- [ ] **C2.** `internal_cost_per_m_usd` — set real governance rates (all 26 models still placeholder 0.20). *(§J)*
+- [ ] **C3.** Add `other` pseudo-model row (grey) for the utility-workload bucket, or special-case in rollup.js. *(§M)*
+
+### D. Dashboard rewrite — the "swap" stage (biggest piece)
+- [ ] **D1.** Swap staging `RAW_DATA/*_real.csv` → `data/*.csv` (atomic, all at once — coherence). *(§M)*
+- [ ] **D2.** `rollup.js` + `index.html` to render **236 cards** (card map built for 50 today).
+- [ ] **D3.** Render the `other@cluster` "Other workloads" bucket (grey) in donut + card map.
+- [ ] **D4.** MIG hover — show `models_on_card` list (multiple models per H100 card).
+- [ ] **D5.** Recompute all coherence invariants (44/50→127/236, 88%→54%, bridge caption, KPI tiles, exec summary).
+- [ ] **D6.** Decide idle %: point-in-time snapshot vs averaged window. *(§L idle note)*
+
+### E. Stays simulated (out of scope now)
+- [ ] **E1.** `fact_training_gpu_hours_monthly` — Slurm not ingested.
+- [ ] **E2.** `fact_workload_util` training/batch rows — only inference is real.
+- [ ] **E3.** `fact_model_pricing` — external host prices (admin-filled, Viz 5).
+
+### F. Doc cleanup (after validation)
+- [ ] **F1.** `schema.md` / `metric_lineage.md` — duty source → LiteLLM; resolved gaps. *(§E)*
+
+**Critical path:** A1 → C1/C3 → D (the rewrite) → B fixes. The biggest single piece is **D**.
+
+### ✅ Already done (for reference)
+- dim_models rebuilt from real names, cluster auto-filled from DCGM (§J,§L)
+- curated pod→model map (§K); DCGM fleet analysis 236 cards/54% (§L)
+- fact_card_snapshot parser built, Option A (§M)
+- 4 ETL scripts fixed & running: pandas venv, SGT tz, aggregation, real dim joins (§N-update)
+- repo pushed to GitHub; RAW_DATA + .venv gitignored
