@@ -4,6 +4,8 @@
 >
 > 👉 **The single consolidated, tickable to-do list is §O (CONSOLIDATED OUTSTANDING CHECKLIST) at the bottom** — groups A–F. The status below is the high-level summary; lettered sections A–N hold the detail.
 >
+> ⚠️ **Patches/workarounds to strip when production data lands → §T (PATCH & WORKAROUND REGISTRY).** Each has an explicit *drop trigger* — several need a **LiteLLM config change or admin input**, NOT just 6 months of data.
+>
 > **Quick status — what's blocking a working dashboard on real data:**
 > 1. 🟢 Rebuild `dim_models.csv` — DONE (staging): `RAW_DATA/dim_models_rebuilt.csv`, **26 rows, cluster_id auto-filled from DCGM** (§K, §L). Only 2 TODO rows (qwen3-coder-next, phoenix-1-0-small — not in snapshot) + admin to set real costs.
 > 2. 🟢 Rebuild `dim_applications.csv` + `dim_organizations.csv` — DONE & verified (§P,§Q): 36 apps / 8 orgs, manual team→org map; `fact_token_usage_monthly` now produces real data (152 rows). Pending: pull `team_id` UUID (A3).
@@ -627,3 +629,38 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 - **C2 🟡 internal cost — still needs admin input.** Set a **uniform flagged placeholder 0.20** for all real models (0.00 for `other`). A size-tier heuristic was attempted but **rejected** — it mis-parsed version-hyphenated names (`spfllm-1-0-123b` → wrong $0.06), producing authoritative-looking but wrong numbers. Uniform placeholder is the honest state; **the platform team must supply real $/1M governance rates.**
 
 `dim_models_rebuilt.csv` now 28 rows (24 real + gptoss dual + 2 `other`). Staging only — swaps into `data/` at the D stage.
+
+---
+
+## T. ⚠ PATCH & WORKAROUND REGISTRY — revisit/drop when production data lands
+
+> **Purpose.** Every temporary workaround taken because the data isn't production-grade yet. When real history + proper config arrive, walk this list and **strip the scaffolding** — the goal is a production-ready dashboard with **zero** of these patches. **IMPORTANT: not all patches are retired by 6 months of data** — the "Drop trigger" column says exactly what retires each one. Some need a **LiteLLM config change** or **admin input**, NOT just more data.
+
+### Patches (drop these when their trigger fires)
+
+| # | Patch (what we did) | Why (the limitation) | **Drop trigger** | Production-ready target |
+|---|---|---|---|---|
+| **P1** | Viz 2 workload **utilization SIMULATED** (trend-consistent, ~54% loose anchor) | Prometheus **10-day retention** → no history; original pull also flawed (no `modelName` filter, rolling `[1d:1m]` window) | **6-month data + retention/persistence store** | Real `fact_workload_util` from the corrected query (`modelName=~"NVIDIA B200\|H100.*"`, `[1w:1m]`×24×7) over full history |
+| **P2** | Viz 6 weekly token trend + **token KPI MoM SIMULATED** (real ~10-day anchors) | 10-day retention → no 6-month trend | **6-month data + persistence** | Real weekly/monthly token rollups from LiteLLM over the full window |
+| **P3** | **Smoke-test ETL outputs** (`RAW_DATA/*_real.csv` from Jun 15–19, now partly expired) are throwaway | 5-day smoke test only | **6-month data** | Re-run all ETL on the production pull; delete the smoke-test CSVs |
+| **P4** | **gptoss-120b collapsed to primary cluster** (B200) for duty/tokens (B1) | LiteLLM proxy metrics have **no cluster label** — a model on 2 clusters would double-count | **LiteLLM config: emit a cluster/deployment label** (NOT fixed by more data) | Attribute proxy metrics per real cluster label; or split by card-share. Until then the H100 slice of gptoss is under-represented |
+| **P5** | **Manual `team_alias`→org map** in dim_applications/dim_organizations (A1/A2) | `org_alias` **not configured** in LiteLLM | **LiteLLM config: enable `org_alias`** (NOT fixed by more data) | Native org attribution from the metric label; drop the manual org assignments |
+| **P6** | Join on **`team_alias`** (rename-fragile), `team_id` blank (A3) | `team_id` UUID not pulled | **Re-pull adding `team` to `by(...)`** | Join on stable `team_id` UUID; alias is display-only |
+| **P7** | **Cost = uniform placeholder `0.20`** (C2) | Real governance rates not provided | **Admin supplies real $/1M** (NOT fixed by data) | Real `internal_cost_per_m_usd` per model from platform team |
+| **P8** | `qwen3-coder-next` + `phoenix-1-0-small` cluster = **H100 (guess)** | Not present in the DCGM snapshot | **DCGM re-confirm when deployed** | Cluster from DCGM placement like every other model |
+| **P9** | `fact_workload_util` **capacity hardcoded `236`** in the script | Quick constant | **D-stage wiring** | Derive from `dim_clusters.total_cards` sum |
+| **P10** | Loaded/idle % from a **single point-in-time** DCGM snapshot | Instant query | **Decide policy (D6)** | Either accept point-in-time (placement is a current-state fact) or average loaded-fraction over a window for the headline |
+
+### Permanent decisions — do NOT drop (recorded so they aren't mistaken for patches)
+- **Duty source = LiteLLM `litellm_requests_metric`** (not vLLM) — permanent; CI bypasses the proxy so it's the *more* accurate source, not a workaround (§A).
+- **Option A: utility workloads = loaded under `other@cluster`** — permanent modeling choice (§M), not a patch.
+- **`input_tokens` dropped** (B4) — scope decision (no visual uses it); revisit only if a future visual needs input tokens.
+- **dim_models as the whitelist + `pod_model_map.py` curated map** — permanent ETL infra.
+- **Real fleet inventory 236 (216/20), H100 NVL 94 GB** (C1) — real, permanent.
+
+### The clean-up checklist for "production data day"
+1. Replace P1/P2 simulated trends with real ETL output; delete P3 smoke-test CSVs and re-run.
+2. If LiteLLM is reconfigured: retire P4 (cluster label), P5 (org_alias), P6 (team_id).
+3. Get P7 real cost rates from platform.
+4. Re-confirm P8 clusters; fix P9 capacity; settle P10 idle policy.
+5. Then re-read §E and update `schema.md`/`metric_lineage.md` to match the now-real pipeline.
