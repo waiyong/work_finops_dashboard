@@ -3,6 +3,9 @@
 # and confidential model names. Kept local only.
 RAW_DATA/
 
+# Python venv (local ETL tooling)
+.venv/
+
 # Tooling / OS junk
 .playwright-mcp/
 .DS_Store

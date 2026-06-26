@@ -5,12 +5,13 @@
 > **Quick status — what's blocking a working dashboard on real data:**
 > 1. 🟢 Rebuild `dim_models.csv` — DONE (staging): `RAW_DATA/dim_models_rebuilt.csv`, **26 rows, cluster_id auto-filled from DCGM** (§K, §L). Only 2 TODO rows (qwen3-coder-next, phoenix-1-0-small — not in snapshot) + admin to set real costs.
 > 2. ⬜ Rebuild `dim_applications.csv` + `dim_organizations.csv` from real teams; simulate org mapping (§I)
-> 3. ⬜ Fix remaining ETL bugs: `fact_workload_util` aggregation, `fact_token_usage_monthly` join (§I)
-> 4. ⬜ Run the 4 ETL scripts (from repo root) + validate output
-> 5. ⬜ Swap staging dims into `data/` once all real data is ready (don't overwrite live `data/*.csv` mid-migration — breaks coherence)
-> 6. ⬜ Deferred schema/lineage doc updates once validated (§E)
+> 3. 🟢 ETL blockers RESOLVED (§N update): pandas in `.venv`; tz fixed (localize SGT, browser=Malaysia UTC+8); both aggregation bugs fixed; dim joins repointed to real `dim_models_rebuilt`; workload capacity → 236. **All 4 scripts now run.**
+> 4. 🟡 Scripts run + output to `RAW_DATA/*_real.csv` (staging). Remaining: `fact_token_usage_monthly` empty until `dim_applications` rebuilt (§I); workload query needs `modelName` filter; gptoss dual-cluster duplication; input tokens not pulled.
+> 5. 🟢 Build `fact_card_snapshot` — DONE (staging): `RAW_DATA/fact_card_snapshot_real.csv`, 236 cards, Option A (untracked=`other@cluster`=loaded). Fleet 127/236 = 54% loaded (§M).
+> 6. ⬜ Swap staging dims/facts into `data/` once all real data is ready (don't overwrite live `data/*.csv` mid-migration — breaks coherence). Includes: real `dim_clusters` (216/20), `other` pseudo-model, rollup.js/index.html for 236 cards + MIG hover.
+> 7. ⬜ Deferred schema/lineage doc updates once validated (§E)
 >
-> **Done so far:** ETL script filename + regex bugs fixed (§F scripts in `RAW_DATA/`); duty-cycle source decision (§A); real model list captured (§C); `dim_models` staging file built (§J).
+> **Done so far:** ETL script filename + regex bugs fixed (§F); duty-cycle source decision (§A); real model list captured (§C); `dim_models` rebuilt w/ DCGM cluster auto-fill (§J,§L); curated pod→model map (§K); `fact_card_snapshot` parser built, Option A (§M).
 
 ---
 
@@ -196,16 +197,16 @@ sum(
 
 ---
 
-## G. ETL query guide status
+## G. ETL script status (superseded by §N verification 2026-06-26)
 
-| Table | Status |
-|---|---|
-| `fact_duty_daily` | ✅ Query + ETL script ready (source: `litellm_requests_metric_total`) |
-| `fact_model_token_weekly` | ✅ Query + ETL script ready |
-| `fact_token_usage_monthly` | ✅ Query + ETL script ready (calendar-month boundary TBD — see E4) |
-| `fact_workload_util` | ✅ Inference path ready; training/batch deferred |
-| `fact_card_snapshot` | ⚠ K8s join not fully specified — admin-fill for now |
-| `fact_training_gpu_hours_monthly` | ⏸ Slurm not yet ingested — keep simulated |
+| Table | Status | See |
+|---|---|---|
+| `fact_duty_daily` | 🟡 logic OK; blocked by pandas + simulated dim_models + tz unconfirmed | §N |
+| `fact_model_token_weekly` | 🔴 **aggregation bug** (doesn't sum 5-min→weekly) + pandas + dim_models | §N |
+| `fact_token_usage_monthly` | 🟡 logic OK; **dim_applications join returns empty** + pandas | §N, §I |
+| `fact_workload_util` | 🔴 **aggregation bug** (1344 rows, not reduced) + pandas + capacity hardcoded | §N |
+| `fact_card_snapshot` | 🟢 **built** via DCGM (`build_fact_card_snapshot.py`) | §M |
+| `fact_training_gpu_hours_monthly` | ⏸ Slurm not yet ingested — keep simulated | — |
 
 ---
 
@@ -417,3 +418,93 @@ H100: llama-3-3-70b (2), gptoss-120b (1), minicpm-v-4-5 (1), phoenix-1-5-small (
 
 ### Idle — how it's computed / its data source
 Idle is **not a separate metric**. It's derived from the same DCGM `DCGM_FI_DEV_FB_USED` card snapshot: a physical GPU is **idle if FB_USED ≤ 1 GiB** (no model weights resident), **loaded otherwise**. `idle = total_cards − loaded_cards`. So it's a **point-in-time** state (the instant the snapshot query ran), exactly like `fact_card_snapshot`. If a smoother number is wanted, average the loaded-fraction over a window (the `avg_over_time((FB_USED>bool 1024)[1d:1m])` approach used for `fact_workload_util`).
+
+---
+
+## M. fact_card_snapshot parser — built (2026-06-26)
+
+`RAW_DATA/build_fact_card_snapshot.py` → `RAW_DATA/fact_card_snapshot_real.csv` (236 cards). Uses `pod_model_map.py` (curated). Dedup to physical GPU by UUID; H100 MIG collapsed to physical card (Option B); workload pod coalesced.
+
+**DECISION (2026-06-26): untracked utility cards count as LOADED (Option A).**
+Cards running embeddings/rerankers/OCR/guardrail/moderation (not dashboard chat/vision models) are physically utilised → counted as loaded under a synthetic **`other@<cluster>`** pseudo-model. The card map shows them as an "Other workloads" bucket (grey), hover lists the real models via `models_on_card`.
+
+**Final real loaded %:** B200 111/216 (51%), H100 16/20 (80%), **FLEET 127/236 (54%)**. (vs simulated 44/50 = 88%.)
+
+**Output columns:** `cluster_id, card_slot, model_uid, workload_type, models_on_card, state`
+- `model_uid`: tracked model `name@cluster` | `other@<cluster>` (untracked utility) | blank (idle)
+- `models_on_card`: pipe-separated bare model names on that physical card (for MIG hover)
+- `state`: idle | loaded_tracked | loaded_untracked (forward-use/analysis)
+
+**Pending dashboard-wiring (the "swap into data/" stage — NOT done yet):**
+- `dim_models` needs an `other` pseudo-row (grey) per cluster, OR `rollup.js` special-cases `other@*`.
+- `dim_clusters.csv` → real inventory (B200 216 / H100 20), not simulated 32/18.
+- `rollup.js` + `index.html` (Viz 3 donut + card map) handle 236 cards, the `other` bucket, and the MIG `models_on_card` hover list (schema change: multiple models per card).
+- All coherence invariants (44/50, 28/32, etc.) get recomputed against real numbers.
+
+---
+
+## N. ETL script verification (2026-06-26) — what's actually resolved vs outstanding
+
+Re-checked all 4 ETL scripts against the real `RAW_DATA/*.csv` inputs.
+
+### Resolved (verified) ✅
+- **Filenames** — all 4 read the correct `RAW_DATA/*.csv` (no more `grafana_*.csv`).
+- **Wide→long parse** — `fact_duty_daily.py` + `fact_model_token_weekly.py` correctly use the bare model-name column headers and drop the trailing `model` / `Value NN` artifact columns.
+- **`fact_token_usage_monthly.py` regex** — its CSV genuinely uses `{model="...", team_alias="..."}` headers, so its extraction works (was never the bug).
+- **Aggregation** — `fact_duty_daily.py` (groupby model×day) and `fact_token_usage_monthly.py` (groupby month×app×model) aggregate correctly.
+
+### Outstanding 🔴/🟡 (blocks running on real data)
+
+**Cross-cutting (affects all 4):**
+1. 🔴 **pandas is NOT installed** — every ETL script `import pandas as pd` and crashes immediately (`ModuleNotFoundError`). Options: `pip3 install pandas`, or rewrite in stdlib `csv` (like `build_fact_card_snapshot.py`, which runs fine). **No ETL script has actually been run yet.**
+2. 🟡 **Join target is the SIMULATED `data/dim_models.csv`** (still glm5-1/kimi/llama4-scout-17b…), not the real `RAW_DATA/dim_models_rebuilt.csv`. Inner-join drops most real models. Repoint the scripts to the rebuilt dim, or swap it into `data/` first.
+3. 🟡 **Timestamp timezone unconfirmed** — raw timestamps look like `2026-06-15 08:05:00` with no tz. `fact_duty_daily.py` assumes UTC (`utc=True`) then converts to SGT (+8). If Grafana exported in SGT already, the business-hours filter (Mon–Fri 09–18 SGT) is shifted 8h wrong. **Confirm Grafana's export tz before trusting duty numbers.**
+
+**Per-script:**
+- `fact_duty_daily.py` — 🟡 logic correct; blocked only by #1, #2, #3 above.
+- `fact_model_token_weekly.py` — 🔴 **aggregation bug (newly found):** the raw file is 5-min increments (1344 rows, `08:05…23:59` over 5 days, values ~1e-5 M = tens of tokens), but the script labels each 5-min row by day and writes them all — it does **not** `groupby` + sum to weekly. Needs a `groupby([week,model_uid]).sum()`. Also note: 5 days ≠ a week, so the weekly bucketing for the smoke test needs a decision (sum to one period, or relabel daily).
+- `fact_token_usage_monthly.py` — 🟡 aggregation OK, but 🔴 the **`dim_applications` join returns empty** (real `team_alias` like "SPF Product Squad A - Genie" don't match the simulated `spf-code-assist`). Also `org_alias` is absent from the export (not configured in LiteLLM) so it's extracted-but-unused. Blocked on the §I dim_applications rebuild.
+- `fact_workload_util.py` — 🔴 **aggregation bug (still open):** 1344 five-minute rows are written as-is with a per-day `week_start` label — not reduced to one value per period. Needs avg/sum aggregation. Also 🟡 `capacity_gpu_hours` hardcoded to `50*24` — should use the **real inventory** (236 cards, or per-cluster B200 216 / H100 20). `active_gpu_hours` left blank (second `GPU_UTIL` query not pulled).
+
+### Direct answer — "are the 4 scripts resolved?"
+| Script | Resolved? |
+|---|---|
+| `fact_duty_daily.py` | **Almost** — logic done; needs pandas + real dim_models + tz confirm to run |
+| `fact_model_token_weekly.py` | **No** — aggregation bug (5-min→weekly) + pandas + dim_models |
+| `fact_token_usage_monthly.py` | **No** — dim_applications join empty + pandas (logic otherwise OK) |
+| `fact_workload_util.py` | **No** — aggregation bug + capacity hardcode + pandas |
+
+### Suggested order to finish them
+1. Decide pandas vs stdlib (install pandas = fastest; all 4 scripts then runnable).
+2. Repoint scripts' dim joins to `RAW_DATA/dim_models_rebuilt.csv` (or swap into `data/`).
+3. Confirm Grafana export timezone (one question) → fixes duty filter.
+4. Fix the two aggregation bugs (`fact_model_token_weekly`, `fact_workload_util`).
+5. Rebuild `dim_applications` from real teams (§I) → unblocks `fact_token_usage_monthly`.
+6. Fix `fact_workload_util` capacity to real inventory.
+
+---
+
+## N-update. ETL scripts fixed & run (2026-06-26, later)
+
+All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<script>.py` from repo root) and write staging `RAW_DATA/*_real.csv`.
+
+**Fixes applied:**
+- **pandas** installed in `.venv` (gitignored). pandas 3.0.3.
+- **Timezone** — confirmed Grafana exports in browser local = **Malaysia UTC+08 (= SGT)**. Duty script now `tz_localize('Asia/Singapore')` (was wrongly `utc=True` + convert). Verified: ~108 business-hour buckets/day (9h×12) → filter correct.
+- **Paths** — all scripts read `RAW_DATA/<in>.csv`, join `RAW_DATA/dim_models_rebuilt.csv` (real, TODO rows dropped), write `RAW_DATA/<name>_real.csv` (staging — does NOT touch live `data/`).
+- **Aggregation bugs fixed** — `fact_model_token_weekly` now sums 5-min increments → weekly per model; `fact_workload_util` aggregates 1343 samples → weekly card-hours (mean daily ×7), capacity = 236×168.
+
+**Run results (5-day smoke test, Jun 15–19):**
+- `fact_duty_daily_real.csv` — 22 models, ~108 buckets/day. ✅
+- `fact_model_token_weekly_real.csv` — 22 models, fleet ≈ 35,525 M tokens/period (glm5-1 dominates @ 21,620 M). ✅
+- `fact_workload_util_real.csv` — 1 weekly row, allocated 7,282 / capacity 39,648 → **18.4% util** (see caveat). ✅
+- `fact_token_usage_monthly_real.csv` — **empty**: 128,833 rows after model join, but 0 after app join (35 real teams, none match simulated `dim_applications`). Confirms §I blocker. ✅ (runs, no crash)
+
+**Remaining caveats (not script bugs):**
+1. **`fact_token_usage_monthly` empty** — blocked on `dim_applications` rebuild from real teams (§I). 35 distinct real team_alias captured.
+2. **gptoss-120b dual-cluster duplication** — the LiteLLM duty/token metric has `model="gptoss-120b"` with no cluster label, so the inner join to the 2 dim rows (@B200, @H100) **duplicates** its duty/tokens onto both. Need a split rule (attribute to primary cluster, or split by card share 12:1). Affects only models running on both clusters (currently just gptoss).
+3. **`fact_workload_util` accuracy** — the raw query had **no `modelName` filter** (sums ALL DCGM GPUs incl. L40) and uses a rolling `[1d:1m]` window, so early samples undercount → avg 43 cards loaded vs 127 in the snapshot. Re-pull with `modelName=~"NVIDIA B200|NVIDIA H100.*"` and a clean window for an accurate number.
+4. **input_tokens_m** blank everywhere — only output token queries were pulled.
+5. Outputs are **staging** (`_real.csv`); the swap into `data/` (with real `dim_clusters`, `other` pseudo-model, rollup.js/index.html changes) is still the separate later stage (status #6).
+
+**To run the ETL:**  `.venv/bin/python RAW_DATA/fact_duty_daily.py`  (and the other 3).
