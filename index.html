@@ -265,14 +265,14 @@
   <div class="row full">
     <div class="panel">
       <h2>Utilization by Workload</h2>
-      <p class="subtitle">GPU card-hours consumed ÷ available, by workload · % of farm capacity · weekly · Jan–Jun 2026</p>
+      <p class="subtitle" id="viz2sub">GPU card-hours consumed ÷ available, by workload · % of farm capacity</p>
       <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
       <div class="fleetavg">
         <span class="big" id="farmUtilNow">—</span>
         <span class="lab" id="farmUtilLab">farm GPU-hour utilization</span>
         <span class="tgt" id="farmUtilTgt">target 85%</span>
       </div>
-      <div class="footnote"><b>GPU-hours = card-time</b> (derived from K8s/Slurm allocation — not a DCGM metric). Denominator = whole farm (50 inference + 8 training cards × 24h). <b>Total utilization rises</b> as the <b>idle</b> band shrinks; <b>Batch Inference</b> (in pipeline) runs after office hours to soak up otherwise-idle cards. <span id="dcgmIntensity"></span></div>
+      <div class="footnote"><b>Loaded ÷ capacity</b> from DCGM framebuffer (a card is loaded if a model's weights are resident). Denominator = the inference fleet (<span id="splitDenom">—</span>). <b>Idle</b> cards are the headroom; <b>Batch Inference</b> (in pipeline) runs after office hours to soak up otherwise-idle cards. <span id="dcgmIntensity"></span></div>
     </div>
   </div>
 
@@ -282,7 +282,7 @@
       <h2>Token Output by Model</h2>
       <p class="subtitle" id="viz6sub">Output tokens by model</p>
       <div class="chartbox" style="height:300px;margin-top:10px;"><canvas id="modelTokenChart"></canvas></div>
-      <div class="footnote">Weekly output-token generation per served model. The stacked total shows fleet throughput <b>growing ~70% over the period</b>; week-to-week peaks shift as demand moves between models. A model-level lens on the same throughput shown by HTD below.</div>
+      <div class="footnote">Output-token generation per served model; the stacked total is <b>fleet throughput</b>, with peaks shifting as demand moves between models. A model-level lens on the same throughput shown by organisation below.</div>
     </div>
   </div>
 
@@ -521,8 +521,9 @@ function buildLegend(){
 const TEAL = '#30B0C7';
 function renderSplit(){
   const W = WORKLOAD_WEEKS;
+  const single = W.length <= 1;   // point-in-time snapshot (no real workload trend yet)
   const band = (label,key,color,fill)=>({label,data:SPLIT[key],borderColor:color,backgroundColor:fill,
-    fill:true,stack:'u',tension:0,pointRadius:0,pointHoverRadius:4,_key:key});
+    fill:true,stack:'u',tension:0,pointRadius:single?5:0,pointHoverRadius:4,_key:key});
   const datasets=[
     band('Inference','inference',ACCENT,'rgba(0,113,227,.80)'),
     band('Training','training',WARN,'rgba(217,138,43,.82)'),
@@ -556,10 +557,20 @@ function renderSplit(){
         y:{stacked:true,min:0,max:100,grid:{color:GRID,drawBorder:false},title:{display:true,text:'% of farm GPU-hours'},ticks:{callback:v=>v+'%'}}}}
   });
   document.getElementById('farmUtilNow').textContent = FARM_UTIL.now+'%';
-  document.getElementById('farmUtilLab').textContent = 'farm GPU-hour utilization · up from '+FARM_UTIL.start+'% in Jan';
+  document.getElementById('farmUtilLab').textContent = single
+    ? 'farm GPU-card utilization · current snapshot (workload trend builds as history accumulates)'
+    : 'farm GPU-hour utilization · up from '+FARM_UTIL.start+'% in '+W[0];
+  const v2s = document.getElementById('viz2sub');
+  if(v2s) v2s.textContent = single
+    ? 'Loaded GPU cards ÷ fleet capacity (DCGM) · current snapshot · '+W[0]
+    : 'GPU card-hours consumed ÷ available, by workload · % of farm capacity · '+W[0]+' – '+W[W.length-1];
   document.getElementById('farmUtilTgt').textContent = 'target '+FARM_UTIL.target+'%';
-  document.getElementById('dcgmIntensity').textContent =
-    'Busy cards ran at ~'+FARM_UTIL.intensity+'% DCGM utilization (compute intensity) — headroom for larger batches.';
+  const totalCards = Object.values(CLUSTER_TOTAL).reduce((a,b)=>a+b,0);
+  document.getElementById('splitDenom').textContent = totalCards + ' cards × 24h';
+  // compute-intensity footnote only when we actually have DCGM active-util data
+  document.getElementById('dcgmIntensity').textContent = FARM_UTIL.intensity
+    ? 'Busy cards ran at ~'+FARM_UTIL.intensity+'% DCGM utilization (compute intensity) — headroom for larger batches.'
+    : '';
 }
 
 /* ---- Viz 6: Token Output by Model (weekly stacked area) ---- */
