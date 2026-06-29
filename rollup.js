@@ -242,27 +242,32 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
       extPrice[r.model][r.provider] = (v === '' || v == null || isNaN(+v)) ? null : +v;
     });
     const PRICING_PROVIDERS = [INTERNAL_PROVIDER].concat(externalProvs);
-    const COSTS = Object.keys(internalByName)                  // all models (internal from dim_models)
+    const INTERNAL_PLACEHOLDER = 0.20;   // un-measured models still carry this seed — exclude from any savings claim
+    const pricedModels = new Set(pricing.map(r => r.model));   // models listed in fact_model_pricing.csv
+    const COSTS = Object.keys(internalByName)
+      .filter(name => pricedModels.has(name))                 // Viz 5 is a comparison table → only models we have external prices for
       .sort((a,b) => (tokByName[b]||0) - (tokByName[a]||0))
-      .slice(0, 5)                                            // top-5 models by token volume
+      .slice(0, 5)                                            // top-5 (by token volume) among the priced models
       .map(name => {
         const internal = isNaN(internalByName[name]) ? null : internalByName[name];
         const prices = { [INTERNAL_PROVIDER]: internal };
         externalProvs.forEach(p => prices[p] = ((extPrice[name]||{})[p] != null) ? extPrice[name][p] : null);
         const ext = externalProvs.map(p => prices[p]).filter(v => v != null);
         return { model:name, prices, internal,
+                 measured: (internal != null && internal !== INTERNAL_PLACEHOLDER),   // real measured cost vs the 0.20 placeholder
                  cheapestExternal: ext.length ? Math.min.apply(null, ext) : null,
                  tok: tokByName[name] || 0 };
       });
-    // token-weighted % that Internal is cheaper than each model's cheapest external host
+    // token-weighted Δ (internal vs cheapest external) over MEASURED models only — NOT the placeholders.
+    // Positive ⇒ self-host cheaper; negative ⇒ self-host costlier (the real data so far is negative).
     let _sn = 0, _sd = 0;
     COSTS.forEach(c => {
-      if(c.internal != null && c.cheapestExternal != null && c.cheapestExternal > 0){
+      if(c.measured && c.cheapestExternal != null && c.cheapestExternal > 0){
         _sn += ((c.cheapestExternal - c.internal) / c.cheapestExternal) * c.tok;
         _sd += c.tok;
       }
     });
-    const COST_SAVINGS = _sd ? Math.round(_sn / _sd * 100) : null;   // null ⇒ headline hidden
+    const COST_SAVINGS = _sd ? Math.round(_sn / _sd * 100) : null;   // null ⇒ no measured model ⇒ headline hidden
 
     /* ---- KPI per environment (renderKPIs uses duty/dutySub/loaded/loadedSub) ---- */
     function pctStr(a,b){ const p = a/b*100; return (p%1===0 ? p : Math.round(p*10)/10) + '%'; }

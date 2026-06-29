@@ -240,7 +240,7 @@
   </div>
 
   <!-- Bridge -->
-  <div class="bridge"><b>Loaded ≠ utilized.</b> A card can have a model loaded yet sit idle: <b id="bridgeLoaded">—</b> of cards are loaded, but only <b id="bridgeDuty">—</b> are actively serving in business hours. Closing that gap is the platform team's core lever.</div>
+  <div class="bridge"><b>Loaded ≠ utilized.</b> <b id="bridgeLoaded">—</b> of cards carry a loaded model — yet those cards sit idle much of business hours (duty just <b id="bridgeDuty">—</b>).</div>
 
   <!-- Row 2: card map -->
   <div class="row full">
@@ -290,7 +290,7 @@
   <div class="row full">
     <div class="panel">
       <h2>Compute Usage &amp; Cost by Organisation</h2>
-      <p class="subtitle">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
+      <p class="subtitle" id="cmpSub">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
       <div class="cmpentry" id="cmpEntry"></div>
       <div class="cmphint" id="cmpHint"></div>
       <div id="cmpDrill" class="costtable"></div>
@@ -301,12 +301,13 @@
   <div class="row full">
     <div class="panel">
       <h2>Cost per Million Tokens vs Open-Model Cloud Host</h2>
-      <p class="subtitle">Output USD per 1M tokens · indicative</p>
+      <p class="subtitle">Internal self-hosted vs cheapest cloud host · output USD per 1M · preliminary</p>
       <div id="costTable" class="costtable" style="margin-top:12px;"></div>
       <div class="fleetavg" id="costSavingsRow">
         <span class="big" id="costSavings">—</span>
-        <span class="lab">cheaper than the cheapest external host (token-weighted across top-5 models)</span>
+        <span class="lab" id="costSavingsLab">—</span>
       </div>
+      <div class="footnote">Internal = measured self-hosted output cost; <b>*</b> = $0.20 placeholder (real cost pending). Cloud = OpenRouter host output prices. Per-token cost reflects current low utilisation — see <b>Utilization by Workload</b>.</div>
     </div>
   </div>
 
@@ -629,21 +630,34 @@ const fmtM   = v => (Math.round(v*10)/10).toLocaleString(undefined,{maximumFract
 const fmtUSD = v => '$' + Math.round(v).toLocaleString();
 
 function renderComputeEntry(){
-  const cs = COMPUTE_SPLIT, tot = (cs.inferenceHours + cs.trainingHours) || 1;
+  const cs = COMPUTE_SPLIT, hasTraining = cs.trainingHours > 0;
+  const tot = (cs.inferenceHours + cs.trainingHours) || 1;
   const seg = (key,label,hrs)=>{
-    const pct = Math.round(hrs/tot*100);
+    const pct = hasTraining ? Math.round(hrs/tot*100) : (key==='inference'?100:0);
+    const sub = hasTraining ? pct+'% of compute · '+cs.month : 'active GPU-hrs · '+cs.month;
     return `<button class="cmpseg ${cmpView===key?'active':''}" data-view="${key}">
       <span class="cmpseg-lab">${label}</span>
       <span class="cmpseg-val">${hrs.toLocaleString()} <span class="u">GPU-hrs</span></span>
       <span class="cmpseg-bar"><i style="width:${pct}%"></i></span>
-      <span class="cmpseg-pct">${pct}% of allocated compute · ${cs.month}</span>
+      <span class="cmpseg-pct">${sub}</span>
     </button>`;
   };
-  document.getElementById('cmpEntry').innerHTML =
-    seg('inference','Inference', cs.inferenceHours) + seg('training','Training', cs.trainingHours);
+  const trnSeg = hasTraining ? seg('training','Training', cs.trainingHours)
+    : `<button class="cmpseg ${cmpView==='training'?'active':''}" data-view="training">
+        <span class="cmpseg-lab">Training</span>
+        <span class="cmpseg-val muted">not captured yet</span>
+        <span class="cmpseg-bar"><i style="width:0%"></i></span>
+        <span class="cmpseg-pct muted">Slurm exporter pending</span>
+      </button>`;
+  document.getElementById('cmpEntry').innerHTML = seg('inference','Inference', cs.inferenceHours) + trnSeg;
+  const sub = document.getElementById('cmpSub');
+  if(sub) sub.textContent = hasTraining
+    ? 'GPU-hours split inference vs training · click a workload to break down by organisation · '+cs.month
+    : 'Inference active GPU-hours by organisation · click a row to break down · training not captured yet · '+cs.month;
   document.getElementById('cmpHint').textContent = cmpView==='inference'
     ? 'Output tokens & internal cost by organisation → application → model. Click a row to expand.'
-    : 'Training GPU-hours & cost (GPU-hours × $/GPU-hour) by organisation.';
+    : (hasTraining ? 'Training GPU-hours & cost (GPU-hours × $/GPU-hour) by organisation.'
+                   : 'Training metrics are not captured yet — Slurm exporter pending.');
 }
 function renderInferenceTable(){
   let h = '<table><thead><tr><th>Organisation → Application → Model</th><th>Output tokens</th><th>Cost (internal)</th></tr></thead><tbody>';
@@ -663,6 +677,11 @@ function renderInferenceTable(){
   document.getElementById('cmpDrill').innerHTML = h;
 }
 function renderTrainingByOrg(){
+  if(!TRAINING_BY_ORG.length){
+    document.getElementById('cmpDrill').innerHTML =
+      '<p class="muted" style="padding:14px 2px;">Training GPU-hours are <b>not captured yet</b> — the Slurm exporter is pending. Inference above is real; training will appear here once it is ingested.</p>';
+    return;
+  }
   let h = '<table><thead><tr><th>Organisation</th><th>Training GPU-hours</th><th>Cost</th></tr></thead><tbody>';
   TRAINING_BY_ORG.forEach(o=>{
     h += `<tr class="lvl0"><td><span class="dot" style="background:${o.color}"></span>${o.org}</td><td>${o.gpuHours.toLocaleString()}</td><td>${fmtUSD(o.cost)}</td></tr>`;
@@ -679,26 +698,40 @@ function renderCompute(){
 /* ---- Viz 5: Cost ---- */
 function renderCost(){
   const provs = PRICING_PROVIDERS, isInt = p=>/internal/i.test(p);
-  const fmt = v => v==null ? '<span class="muted">—</span>' : '$'+v.toFixed(2);
-  let html = '<table><thead><tr><th>Model</th>';
-  provs.forEach(p=>{ html += `<th class="${isInt(p)?'ours':''}">${p}</th>`; });
-  html += '</tr></thead><tbody>';
+  const fmt = v => '$'+v.toFixed(2);
+  let html = '<table><thead><tr><th>Model</th><th class="ours">Internal $/1M</th>'
+           + '<th>Cloud hosts (output $/1M)</th><th>vs cheapest cloud</th></tr></thead><tbody>';
   COSTS.forEach(c=>{
-    const vals = provs.map(p=>c.prices[p]).filter(v=>v!=null);
-    const minv = vals.length ? Math.min.apply(null, vals) : null;
-    html += `<tr><td class="model">${c.model}</td>`;
-    provs.forEach(p=>{
-      const v = c.prices[p];
-      const cls = [isInt(p)?'ours':'', (v!=null && v===minv)?'cheapest':''].filter(Boolean).join(' ');
-      html += `<td class="${cls}">${fmt(v)}</td>`;
-    });
-    html += '</tr>';
+    const hosts = provs.filter(p=>!isInt(p) && c.prices[p]!=null)
+                       .map(p=>({name:p, price:c.prices[p]})).sort((a,b)=>a.price-b.price);
+    const cheap = hosts.length ? hosts[0].price : null;
+    const intCell = c.internal==null ? '<span class="muted">—</span>'
+                  : fmt(c.internal) + (c.measured ? '' : ' <span class="muted">*</span>');
+    const hostsCell = hosts.length
+      ? hosts.map((h,i)=>`<span class="${i===0?'cheapest':''}">${h.name} ${fmt(h.price)}</span>`).join(' · ')
+      : '<span class="muted">—</span>';
+    let deltaCell = '<span class="muted">—</span>';
+    if(c.measured && cheap!=null && cheap>0){
+      const pct = Math.round((cheap - c.internal)/cheap*100);   // + cheaper, − costlier
+      deltaCell = pct>=0 ? `<span class="up">${pct}% cheaper</span>`
+                         : `<span class="bad">${Math.abs(pct)}% costlier</span>`;
+    }
+    html += `<tr><td class="model">${c.model}</td><td class="ours">${intCell}</td>`
+          + `<td>${hostsCell}</td><td>${deltaCell}</td></tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('costTable').innerHTML = html;
   const row = document.getElementById('costSavingsRow');
+  const big = document.getElementById('costSavings');
+  const lab = document.getElementById('costSavingsLab');
   if(COST_SAVINGS==null){ row.style.display='none'; }
-  else { row.style.display=''; document.getElementById('costSavings').textContent = COST_SAVINGS+'%'; }
+  else if(COST_SAVINGS>=0){
+    row.style.display=''; big.textContent = COST_SAVINGS+'%'; big.className='big';
+    lab.textContent = 'cheaper than cheapest cloud · token-weighted, measured models only';
+  } else {
+    row.style.display=''; big.textContent = Math.abs(COST_SAVINGS)+'%'; big.className='big bad';
+    lab.textContent = 'MORE expensive than cheapest cloud at current utilisation · token-weighted, measured models only';
+  }
 }
 
 /* ---- Narrative numbers (computed — no hand-typed figures) ---- */

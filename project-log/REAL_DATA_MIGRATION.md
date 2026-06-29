@@ -735,7 +735,7 @@ Built from the org mapping in §P. Staging files (gitignored — real agency tea
 | **P9** | `fact_workload_util.py` **capacity hardcoded `236`** in the ETL (the dashboard itself now derives the denominator from `dim_clusters` — data-driven) | quick constant left in the ETL | **make the ETL read `dim_clusters`** | ETL derives capacity from `dim_clusters.total_cards` sum |
 | **P10** | Loaded/idle % from a **single point-in-time** DCGM snapshot (shipped: D6 chose point-in-time) | instant query | **policy revisit** | accept point-in-time (placement is a current-state fact) or average the loaded-fraction over a window for the headline |
 | **P11** | **`data_real/` is hand-built** — staging `RAW_DATA/*_real.csv` copied into contract filenames + a one-off daily-token generator + a hand-derived workload row. Not produced by an automated pipeline. | no production ETL pipeline yet | **production ETL** writes the contract CSVs | automated raw→contract pipeline (schema.md §6) feeds `data_real/` (or a live store) |
-| **P12** | **Mock/placeholder numbers visible ON the real view** — Viz 4 **Training** GPU-hrs (4,880) + training drill, and Viz 5 **internal cost** ($0.20 placeholder) + blank externals. Real inference sits next to mock training/cost. | Slurm not ingested (E1); cost rates not provided (C2) | **Slurm ingest + admin $/1M rates** | real training GPU-hrs + real costs; OR hide/flag these until available so the "real" view has no mock numbers |
+| **P12** | **Training — ✅ fixed (2026-06-29):** fake 4,880 GPU-hr row gone; Viz 4 now shows "not captured yet · Slurm exporter pending" when `trainingHours = 0`. **Cost — still pending:** Viz 5 internal cost = `$0.20` placeholder for most models; 3 have real rates (`glm5-1` $10.16, `gptoss-120b` $0.82, `phoenix-vl-1-5-medium` $15.73). External prices in `fact_model_pricing.csv` for 7 models. | Remaining cost rates not provided (C2); Slurm not ingested (E1) | **Admin supplies real $/1M** for remaining models; Slurm ingest for real training | All models have real `internal_cost_per_m_usd`; training shows actual GPU-hrs |
 | **P13** | Real data served via **`?data=real` + gitignored `data_real/`** (local-only, to keep confidential names out of git) | tracked repo must stay shareable/safe (mock) | **production deployment decision** (deliberate, not a bug) | in a private deployment, serve real data directly; keep the `?data=real` switch for the public mock |
 | **P14** | Header **"Last updated 17 Jun 2026"** is hardcoded (not data-driven); env selector **L1/L2/L3** buttons don't actually filter (pre-existing stub) | cosmetic / pre-existing | **D-polish / future** | data-driven last-updated timestamp; wire or remove the L1/L2/L3 buttons |
 
@@ -772,9 +772,12 @@ Instead of fabricating 6-month/24-week history, the trend visuals show exactly t
 - **Viz 2** → derived from the reliable **card snapshot** (current 54%), NOT the flawed workload query and NOT simulated. Point-in-time by nature; becomes a trend when real workload history exists. *(now patch **P1** in §T)*
 > The old §T entries that described *simulating* these were rewritten — the table reflects the **adaptive** reality that shipped.
 
-**Still mock / pending on the real view (unchanged from groups C/E):**
-- Viz 4 **Training** GPU-hrs (4,880) + training drill — Slurm not ingested (E1).
-- Viz 5 internal cost = placeholder **$0.20** (C2 — needs admin governance rates); external prices blank.
-- Viz 2 is a single snapshot point (no real workload time-series until a corrected DCGM pull or persistence store).
+**Still mock / pending on the real view (updated 2026-06-29):**
+- Viz 4 **Training** — now shows **"not captured yet · Slurm exporter pending"** (no longer the fabricated 4,880 GPU-hrs). `data_real/fact_training_gpu_hours_monthly.csv` emptied to header-only; `renderComputeEntry()` + `renderTrainingByOrg()` are conditional on `trainingHours > 0`.
+- Viz 5 internal cost = placeholder **$0.20** for most models (C2); 3 models have real governance rates set: `glm5-1` $10.16, `gptoss-120b` $0.82, `phoenix-vl-1-5-medium` $15.73. External host prices in `fact_model_pricing.csv` for 7 models.
+- Viz 2 shows **real GPU_UTIL** (DCGM, per-cluster, card-weighted 216:20) over the current window — adaptive, ~Jun 19–26.
+
+**Also fixed (2026-06-29 audit):**
+- **Bridge caption** reworded — the old text read "X% loaded but only Y% serving" which inverts when loaded% < duty%. New: "*X%* of cards carry a loaded model — yet those cards sit idle much of business hours (duty just *Y%*)." Numbers stay data-driven via `bridgeLoaded` / `bridgeDuty` spans.
 
 **To run the real dashboard:** `python3 -m http.server` then open `index.html?data=real`. Real CSVs live in gitignored `data_real/` (built from `RAW_DATA/` staging); never committed.
