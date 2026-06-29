@@ -121,9 +121,13 @@
   .mbname{font-size:11.5px;font-weight:650;color:var(--ink);white-space:nowrap;letter-spacing:-.01em;}
   .mbcount{font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;}
   .mbcells{display:flex;flex-wrap:wrap;gap:4px;max-width:230px;}
-  .mc{width:22px;height:22px;border-radius:5px;flex:0 0 auto;transition:transform .1s;}
+  .mc{width:22px;height:22px;border-radius:5px;flex:0 0 auto;transition:transform .1s;cursor:default;}
   .mc:hover{transform:scale(1.16);box-shadow:0 2px 8px rgba(0,0,0,.2);}
   .mblock.idle .mc{background:transparent;border:1.5px dashed #CFCFD4;}
+  #cardTip{position:fixed;display:none;background:#1D1D1F;color:#fff;font-size:12px;line-height:1.5;
+    padding:8px 11px;border-radius:8px;pointer-events:none;z-index:9999;max-width:280px;white-space:pre-wrap;
+    box-shadow:0 4px 16px rgba(0,0,0,.25);}
+  #cardTip b{font-weight:600;display:block;margin-bottom:2px;}
   .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:18px;padding-top:16px;border-top:1px solid var(--hairline);}
   .legend .li{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#3a3a3c;}
   .legend .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto;}
@@ -187,7 +191,7 @@
     background:#EDEDF0;color:var(--muted);cursor:default;vertical-align:middle;
     margin-left:7px;position:relative;user-select:none;flex-shrink:0;}
   .infobtn:hover{background:#D9D9DE;color:var(--ink);}
-  .infotip{display:none;position:absolute;top:calc(100% + 8px);left:0;width:360px;
+  .infotip{display:none;position:absolute;top:calc(100% + 8px);left:0;width:440px;
     background:#1D1D1F;color:#F5F5F7;border-radius:12px;padding:14px 16px;
     font-size:12px;line-height:1.55;z-index:200;box-shadow:0 6px 28px rgba(0,0,0,.32);
     white-space:normal;text-align:left;font-weight:400;}
@@ -267,6 +271,7 @@
     <div class="panel" id="cardMapPanel">
       <h2>GPU Card Allocation Map <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Each square = one physical GPU card. Color = the model loaded on it. Grey = "other workloads" (embeddings, rerankers, guardrails — excluded from per-model metrics but physically occupied). Dashed outline = idle (no model loaded).</div><div class="ts"><div class="tl">Raw metrics</div><code>DCGM_FI_DEV_FB_USED</code> (loaded/idle) + K8s pod placement (which model is on which card).</div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n}</code></div></div></span></h2>
       <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · <span id="mapAsOf">live snapshot</span><span id="mapFocusHint" class="focushint"></span></p>
+      <div id="cardTip"></div>
       <div class="mapgrids" id="mapGrids">
         <div class="mapcluster" id="clusterB200">
           <div class="chead"><span class="ct">SUPERPOD · B200</span><span class="cs" id="csB200"></span></div>
@@ -309,7 +314,7 @@
   <!-- Compute Usage & Cost by Organisation (full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Compute Usage &amp; Cost by Organisation <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Inference: output tokens and internal cost broken down by Organisation → Application → Model. Cost = tokens × admin-set $/1M governance rate. Training: GPU-hours and cost by org (not yet captured — Slurm exporter pending).</div><div class="ts"><div class="tl">Raw metric (inference)</div><code>litellm_output_tokens_metric_total</code><br>with <code>team_alias</code> label → mapped to org via dim_applications.</div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (org_alias, team_alias, model) (\n  increase(\n    litellm_output_tokens_metric_total{\n      model!="unknown",\n      team_alias!="litellm-internal-health-check"\n    }[1d])) / 1e6</code></div></div></span></h2>
+      <h2>Compute Usage &amp; Cost by Organisation <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Inference: output tokens and internal cost broken down by Organisation → Application → Model. Cost = tokens × admin-set $/1M governance rate. Training: GPU-hours and cost by org (not yet captured — Slurm exporter pending).</div><div class="ts"><div class="tl">Raw metric (inference)</div><code>litellm_output_tokens_metric_total</code><br>with <code>team_alias</code> label → mapped to org via dim_applications.</div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (team_alias, model) (\n  increase(\n    litellm_output_tokens_metric_total{\n      model!="unknown",\n      team_alias!="litellm-internal-health-check"\n    }[1d])) / 1e6</code><br><code>org_alias</code> not configured — org mapped via <code>dim_applications.csv</code> in ETL.</div></div></span></h2>
       <p class="subtitle" id="cmpSub">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
       <div class="cmpentry" id="cmpEntry"></div>
       <div class="cmphint" id="cmpHint"></div>
@@ -335,7 +340,7 @@
 
 <!-- Normalized dataset lives in data/*.csv; rollup.js aggregates it into the
      render globals. Edit the CSVs to swap in real data — no code change. -->
-<script src="rollup.js?v=6"></script>
+<script src="rollup.js?v=8"></script>
 <script>
 /* ===================== SETUP ===================== */
 Chart.register(window['chartjs-plugin-annotation']);
@@ -523,10 +528,17 @@ function buildGrid(cluster, elId){
     const label = m.name==='other' ? 'Other workloads' : m.name;
     let cells='';
     cardRows.forEach(r=>{
-      const shared = (r.models_on_card && r.models_on_card.indexOf('|')>=0)
-        ? ' · shares card: '+r.models_on_card.replace(/\|/g,', ') : '';
-      const slot = (r.card_slot!==undefined && r.card_slot!=='') ? ' card #'+String(r.card_slot).padStart(2,'0') : '';
-      cells+=`<span class="mc" style="background:${m.color}" title="${label} · ${cluster}${slot} · ${mem} · duty ${m.duty}%${shared}"></span>`;
+      let extra = '';
+      if(r.models_on_card){
+        if(r.models_on_card.indexOf('|')>=0)
+          extra = '\nMIG slices: '+r.models_on_card.replace(/\|/g,', ');
+        else if(m.name==='other')
+          extra = '\nModel: '+r.models_on_card;
+      }
+      const slot = (r.card_slot!==undefined && r.card_slot!=='') ? ' · card #'+String(r.card_slot).padStart(2,'0') : '';
+      const tipHeader = label+(m.name!=='other'?' · duty '+m.duty+'%':'');
+      const tipBody = cluster+slot+' · '+mem+extra;
+      cells+=`<span class="mc" style="background:${m.color}" data-tip="${tipHeader}|${tipBody}"></span>`;
     });
     html+=`<div class="mblock"><div class="mbhead"><span class="mbdot" style="background:${m.color}"></span>`
         + `<span class="mbname">${m.name==='other'?'Other':m.name}</span><span class="mbcount">${cardRows.length} card${cardRows.length>1?'s':''}</span></div>`
@@ -535,7 +547,7 @@ function buildGrid(cluster, elId){
   if(idle>0){
     let cells='';
     for(let i=0;i<idle;i++){
-      cells+=`<span class="mc" title="Idle — no model loaded · ${cluster} · ${mem}"></span>`;
+      cells+=`<span class="mc" data-tip="Idle|No model loaded · ${cluster} · ${mem}"></span>`;
     }
     html+=`<div class="mblock idle"><div class="mbhead"><span class="mbname">Idle</span>`
         + `<span class="mbcount">${idle} card${idle>1?'s':''}</span></div><div class="mbcells">${cells}</div></div>`;
@@ -817,6 +829,23 @@ DATA_READY.then(()=>{
   buildGrid('B200','gridB200');
   buildGrid('H100','gridH100');
   buildLegend();
+  (function(){
+    const tip = document.getElementById('cardTip');
+    document.getElementById('mapGrids').addEventListener('mouseover', function(e){
+      const mc = e.target.closest('[data-tip]');
+      if(!mc){ tip.style.display='none'; return; }
+      const parts = mc.dataset.tip.split('|');
+      tip.innerHTML = '<b>'+parts[0]+'</b>'+(parts[1]||'');
+      tip.style.display = 'block';
+    });
+    document.getElementById('mapGrids').addEventListener('mousemove', function(e){
+      tip.style.left = (e.clientX+14)+'px';
+      tip.style.top  = (e.clientY+10)+'px';
+    });
+    document.getElementById('mapGrids').addEventListener('mouseleave', function(){
+      tip.style.display='none';
+    });
+  })();
   // Viz 6 subtitle reflects the ACTUAL period range in the data (adapts: 5 days now, weeks later)
   if(WEEKS.length){
     const span = WEEKS.length>1 ? WEEKS[0]+' – '+WEEKS[WEEKS.length-1] : WEEKS[0];
@@ -837,6 +866,31 @@ DATA_READY.then(()=>{
   document.body.insertAdjacentHTML('afterbegin',
     '<div style="padding:14px 20px;background:#FDECEA;color:#CE2C1E;font:14px system-ui">'+
     'Failed to load dashboard data: '+err.message+'. The dashboard must be served over HTTP — see RUN_DASHBOARD.md.</div>');
+});
+
+/* ---- ⓘ tooltip fixes ---- */
+/* 1. Normalise literal \n in PromQL code blocks to real newlines */
+document.querySelectorAll('.infotip code').forEach(function(el){
+  if(el.textContent.indexOf('\\n') < 0) return;
+  el.innerHTML = el.textContent
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\\n/g,'\n');
+});
+/* 2. Auto-flip tooltips that would overflow the right viewport edge */
+document.querySelectorAll('.infobtn').forEach(function(btn){
+  btn.addEventListener('mouseenter', function(){
+    var tip = this.querySelector('.infotip');
+    if(!tip) return;
+    tip.style.left = '0'; tip.style.right = '';
+    requestAnimationFrame(function(){
+      var r = tip.getBoundingClientRect();
+      if(r.right > window.innerWidth - 10){ tip.style.left = 'auto'; tip.style.right = '0'; }
+    });
+  });
+  btn.addEventListener('mouseleave', function(){
+    var tip = this.querySelector('.infotip');
+    if(tip){ tip.style.left = ''; tip.style.right = ''; }
+  });
 });
 </script>
 </body>
