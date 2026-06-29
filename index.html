@@ -181,6 +181,26 @@
   .costtable .chev.open{transform:rotate(90deg);}
   .costtable .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle;}
 
+  /* ⓘ info button + tooltip */
+  .infobtn{display:inline-flex;align-items:center;justify-content:center;
+    width:16px;height:16px;border-radius:50%;font-size:10.5px;font-weight:700;
+    background:#EDEDF0;color:var(--muted);cursor:default;vertical-align:middle;
+    margin-left:7px;position:relative;user-select:none;flex-shrink:0;}
+  .infobtn:hover{background:#D9D9DE;color:var(--ink);}
+  .infotip{display:none;position:absolute;top:calc(100% + 8px);left:0;width:360px;
+    background:#1D1D1F;color:#F5F5F7;border-radius:12px;padding:14px 16px;
+    font-size:12px;line-height:1.55;z-index:200;box-shadow:0 6px 28px rgba(0,0,0,.32);
+    white-space:normal;text-align:left;font-weight:400;}
+  .infobtn:hover .infotip,.infobtn:focus .infotip{display:block;}
+  .infotip .ts{margin-bottom:10px;}
+  .infotip .ts:last-child{margin-bottom:0;}
+  .infotip .tl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:#8E8E93;margin-bottom:3px;}
+  .infotip code{font-family:'SF Mono','Fira Code',monospace;font-size:11px;
+    color:#FFD60A;white-space:pre-wrap;display:block;margin-top:2px;}
+  /* KPI ⓘ — smaller tooltip width, anchored left */
+  .kpi .infobtn .infotip{width:300px;}
+
   @media (max-width:1120px){
     .kpis{grid-template-columns:repeat(2,1fr);}
     .row.r1,.row.r3{grid-template-columns:1fr;}
@@ -212,7 +232,7 @@
   <!-- Row 1 -->
   <div class="row r1">
     <div class="panel">
-      <h2>GPU Utilization — Top 5 Models</h2>
+      <h2>Time in Use — Top 5 Models <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>For each model: % of business-hour 5-min windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was in flight. Top 5 ranked by this %. Fleet avg = card-weighted mean across all models.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code><br>Business-hours filter applied in ETL (Python), not in PromQL.</div></div></span></h2>
       <p class="subtitle" id="dutySub">% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT)</p>
       <div class="chartbox" style="height:260px;margin-top:10px;"><canvas id="dutyChart"></canvas></div>
       <div class="fleetavg">
@@ -223,7 +243,7 @@
     </div>
 
     <div class="panel" id="loadedDonutPanel">
-      <h2>GPUs with Models Loaded</h2>
+      <h2>GPUs with Models Loaded <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Point-in-time snapshot: physical GPU cards with model weights resident in framebuffer memory ÷ total fleet cards. A card is "loaded" if FB_USED > 1 GiB. Does not measure whether the model is actively computing.</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_FB_USED</code></div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n}</code><br>H100 MIG slices collapsed to physical card via avg by (UUID).</div></div></span></h2>
       <p class="subtitle">Distinct GPU cards serving a model ÷ total cards · <span id="donutAsOf">live snapshot</span> · click a cluster to focus the map below</p>
       <div class="donutwrap" style="margin-top:18px;">
         <div class="donutbox">
@@ -245,7 +265,7 @@
   <!-- Row 2: card map -->
   <div class="row full">
     <div class="panel" id="cardMapPanel">
-      <h2>GPU Card Allocation Map</h2>
+      <h2>GPU Card Allocation Map <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Each square = one physical GPU card. Color = the model loaded on it. Grey = "other workloads" (embeddings, rerankers, guardrails — excluded from per-model metrics but physically occupied). Dashed outline = idle (no model loaded).</div><div class="ts"><div class="tl">Raw metrics</div><code>DCGM_FI_DEV_FB_USED</code> (loaded/idle) + K8s pod placement (which model is on which card).</div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n}</code></div></div></span></h2>
       <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · <span id="mapAsOf">live snapshot</span><span id="mapFocusHint" class="focushint"></span></p>
       <div class="mapgrids" id="mapGrids">
         <div class="mapcluster" id="clusterB200">
@@ -264,7 +284,7 @@
   <!-- GPU utilization by workload (stacked area, full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Utilization by Workload</h2>
+      <h2>Utilization by Workload <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Fraction of GPU compute units actively executing — how hard the cards are actually working. Measured 24×7 including weekends and overnight. Two clusters pulled separately and card-weighted (216 B200 : 20 H100) into a fleet %. Not the same as "Time in Use" (which counts request presence, not compute intensity).</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_GPU_UTIL</code></div><div class="ts"><div class="tl">PromQL (per cluster)</div><code>avg( avg by (UUID) (\n  DCGM_FI_DEV_GPU_UTIL{\n    modelName="NVIDIA B200"\n  }))</code><br>Same query with modelName="NVIDIA H100 NVL" for the H100 cluster. avg by (UUID) collapses MIG slices to physical card.</div></div></span></h2>
       <p class="subtitle" id="viz2sub">Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7</p>
       <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
       <div class="fleetavg">
@@ -279,7 +299,7 @@
   <!-- Token Output by Model (full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Token Output by Model</h2>
+      <h2>Token Output by Model <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Daily output tokens generated per production model (tracked generative LLMs only — excludes embeddings, rerankers, OCR, CI/benchmark traffic). Stacked total = fleet throughput. Each day = one trailing-24h total.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_output_tokens_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_output_tokens_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1d])) / 1e6</code><br>ETL takes the last reading per (model, day) — not a sum of 5-min rows.</div></div></span></h2>
       <p class="subtitle" id="viz6sub">Output tokens by model</p>
       <div class="chartbox" style="height:300px;margin-top:10px;"><canvas id="modelTokenChart"></canvas></div>
       <div class="footnote">Output-token generation per served model; the stacked total is <b>fleet throughput</b>, with peaks shifting as demand moves between models. A model-level lens on the same throughput shown by organisation below.</div>
@@ -289,7 +309,7 @@
   <!-- Compute Usage & Cost by Organisation (full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Compute Usage &amp; Cost by Organisation</h2>
+      <h2>Compute Usage &amp; Cost by Organisation <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Inference: output tokens and internal cost broken down by Organisation → Application → Model. Cost = tokens × admin-set $/1M governance rate. Training: GPU-hours and cost by org (not yet captured — Slurm exporter pending).</div><div class="ts"><div class="tl">Raw metric (inference)</div><code>litellm_output_tokens_metric_total</code><br>with <code>team_alias</code> label → mapped to org via dim_applications.</div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (org_alias, team_alias, model) (\n  increase(\n    litellm_output_tokens_metric_total{\n      model!="unknown",\n      team_alias!="litellm-internal-health-check"\n    }[1d])) / 1e6</code></div></div></span></h2>
       <p class="subtitle" id="cmpSub">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
       <div class="cmpentry" id="cmpEntry"></div>
       <div class="cmphint" id="cmpHint"></div>
@@ -300,7 +320,7 @@
   <!-- Row 4 -->
   <div class="row full">
     <div class="panel">
-      <h2>Cost per Million Tokens vs Open-Model Cloud Host</h2>
+      <h2>Cost per Million Tokens vs Open-Model Cloud Host <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Output cost per 1M tokens: self-hosted internal rate vs the same model hosted externally. Shows whether self-hosting is cheaper. * = $0.20 placeholder (real governance rate not yet set).</div><div class="ts"><div class="tl">Internal cost source</div>Admin-provided governance rate in <code>dim_models.internal_cost_per_m_usd</code>. Not metric-derived — set by the platform team.</div><div class="ts"><div class="tl">Cloud price source</div>Manually curated from provider websites / APIs. Stored in <code>fact_model_pricing.csv</code>. No PromQL — admin-maintained input.</div></div></span></h2>
       <p class="subtitle">Internal self-hosted vs cheapest cloud host · output USD per 1M · preliminary</p>
       <div id="costTable" class="costtable" style="margin-top:12px;"></div>
       <div class="fleetavg" id="costSavingsRow">
@@ -366,9 +386,9 @@ function renderKPIs(env){
     tSub = tokenWindow() || (t.curM + ' · single period');
   }
   document.getElementById('kpis').innerHTML = `
-    <div class="kpi"><div class="label">GPU Utilization</div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
-    <div class="kpi"><div class="label">GPUs Loaded</div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
-    <div class="kpi"><div class="label">Tokens (output)</div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
+    <div class="kpi"><div class="label">Time in Use <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of business-hour windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was active. Not GPU compute intensity — a model can be "in use" while the GPU is mostly waiting between tokens.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code></div></div></span></div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
+    <div class="kpi"><div class="label">GPUs Loaded <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Physical GPU cards with a model's weights resident in framebuffer memory ÷ total fleet cards. Point-in-time snapshot. Loaded ≠ actively computing.</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_FB_USED</code></div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n} > 1024</code></div></div></span></div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
+    <div class="kpi"><div class="label">Tokens (output) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total output tokens generated by the fleet in the reporting window. Excludes CI traffic and health-check probes. Each day = one trailing-24h total (not summed from 5-min rows).</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_output_tokens_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_output_tokens_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1d])) / 1e6</code></div></div></span></div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
 }
 
 /* ---- Viz 1: Duty cycle ---- */
