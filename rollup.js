@@ -50,7 +50,7 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
   }
 
   window.DATA_READY = Promise.all(FILES.map(f =>
-    fetch(DATA_DIR+f+'.csv').then(r=>{
+    fetch(DATA_DIR+f+'.csv?v=6').then(r=>{
       if(!r.ok) throw new Error('Failed to load '+DATA_DIR+f+'.csv ('+r.status+')');
       return r.text();
     }).then(parseCSV)
