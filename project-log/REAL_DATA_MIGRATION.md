@@ -135,6 +135,8 @@ These need updating once real data ETL is validated. Do not update until then (a
 
 ## F. Grafana query guide — all four pullable tables (2026-06-26)
 
+> ⚠️ **Superseded by [`RAW_DATA/DATA_REFRESH.md`](../RAW_DATA/DATA_REFRESH.md)** (the current operator guide — verified queries, file-naming, run/rebuild steps). The metric names here drop the `_total` suffix the real metrics actually expose (`litellm_output_tokens_metric_total`), and the rolling-`[1d]`-vs-step caveat is explained in §N-2. Kept for history.
+
 Use **"Series joined by time"** in Grafana Inspector → Data → Download CSV for all queries. This gives wide-format CSV (one column per model series) which the Python ETL scripts expect.
 
 For the 5-day smoke test, use `[1d]` lookback and step `1d` everywhere instead of `[1w]` / step `1w`. Extend to 6 months once `dim_models.csv` is updated with real names.
@@ -512,6 +514,83 @@ All 4 ETL scripts now **execute successfully** (`.venv/bin/python RAW_DATA/<scri
 5. Outputs are **staging** (`_real.csv`); the swap into `data/` (with real `dim_clusters`, `other` pseudo-model, rollup.js/index.html changes) is still the separate later stage (status #6).
 
 **To run the ETL:**  `.venv/bin/python RAW_DATA/fact_duty_daily.py`  (and the other 3).
+
+---
+
+## N-2. CORRECTION — token overcount (rolling `[1d]` summed) fixed (2026-06-26, later still)
+
+⚠️ **The §N-update "aggregation fix" for the token scripts was itself wrong** and inflated every token figure ~**258×**. Corrected this session.
+
+**Root cause.** The token queries use `increase(litellm_output_tokens_metric_total[1d])` — a **rolling 24-hour total** — but Grafana exported it at a **5-minute step** (1344 rows over the 5 days, modal step 00:05:00, **autocorrelation = 1.0**, values drift smoothly → each row is a full day's tokens, not a 5-min delta). The script then **summed all rows**, counting every token once per 5-min sample (~258 of them per day).
+- Proof: `fact_model_token_weekly` glm5-1 week total = **21,620 M**; one-sample-per-day sum = **~110 M**. Fleet **41.6 B (sum-all-rows) vs 0.16 B (corrected)** = **258× overcount**. The §N-update "fleet ≈ 35,525 M" and the dashboard's "Tokens (output) = 35.3 B" were both this inflated number.
+
+**Fix (option A — chosen with user; keeps the `[1d]` query, fixes the ETL).** Both token scripts now **collapse the rolling-24h series to one value per (series, day)** — the day's **last** reading (= its trailing-24h total) — *then* aggregate (weekly script → daily rows for the adaptive Viz 6; monthly script → sum to month). Mirrors how `fact_workload_util.py` already handles the same `[1d:1m]` rolling shape (mean ×7, never sum).
+- Why A over re-pulling at `[5m]`: (1) **lower noise** — one 24h `increase()` has 2 extrapolated edges/day vs ~576 if stitched from 288 `[5m]` windows; (2) **week-1 (Jun 15–19) is already ~11 days old → past the ~10-day Prometheus retention**, so a `[5m]` re-pull would likely return empty and *lose* week-1. The saved `[1d]` raw CSV is the only copy.
+
+**Also added this session.**
+- Both token scripts now **glob** all `fact_model_token_weekly*.csv` / `fact_token_usage_monthly*.csv` (excl. `_real`) and concat → **drop a new dated file per week, re-run** (no hand-appending; pandas aligns by column). Enables week-on-week as weeks accumulate.
+- Verified on the real view: **Tokens (output) = 137 M** (was 35.3 B); Viz 6 daily 19/17/18/59/24 M; Viz 4 HTX 97 M → $19 (at $0.20/M placeholder). 0 console errors (favicon only).
+- New **`RAW_DATA/DATA_REFRESH.md`** — operator guide for pulling the next week (queries, file-naming, run/rebuild/verify steps, the "append? no" rule). Local-only.
+
+**Note on §F below:** its "use `[1d]` lookback **and step `1d`**" line was the *intent*, but the actual export came at a **5-min step** — which is exactly what made summing overcount. The ETL is now **step-agnostic** (collapses to daily regardless), so either step is safe; `[1d]` window stays.
+
+**Still TODO (separate, small):** the **Tokens (output) KPI shows no week-on-week yet** — it reads the *monthly* fact (both weeks fall in "Jun" → one bucket). To show "↑ X% WoW" it must read the *weekly* fact and compare latest vs prior week. Do once two weeks are loaded.
+
+---
+
+## N-3. Model inclusion — what's tracked vs excluded, and why (2026-06-29)
+
+The **per-model metrics** (duty Viz 1, token output Viz 6, cost Viz 4/5) count only **production *generative* LLMs**. This is the *why* behind the whitelist mechanism noted at §I/L118 — the concept is also stated in `README.md` (Key definitions → "Tracked (production) models"); this section is the **mechanism + drop-list**.
+
+**Principle.** The dashboard answers *"how well are the cards serving real generative inference?"*. So anything that would **distort that signal** is excluded:
+
+| Excluded category | Why (how it would distort) |
+|---|---|
+| Embeddings / rerankers | non-generative (vectors/scores), ~0 output tokens → flat-zero noise + different util profile |
+| OCR / document utilities | utility workload, not conversational LLM serving |
+| **Test / benchmark / CI** | **synthetic load → inflates** utilization & token counts (e.g. `gptoss-120b-benchmark` = 17.9M tokens of fake demand) |
+| `unknown` / MCP (`MCP: list_tools`) | not a GPU-served model — agent/tool-protocol artifact in the `model` field |
+
+**Mechanism.** The `dim_models_rebuilt.csv` (= `data_real/dim_models.csv`) **whitelist**: a LiteLLM `model` label survives only if it exactly matches a `name` row (real `cluster_id`). `CORE_MAP` in `pod_model_map.py` carries the same include/exclude flags for the card-snapshot side. No PromQL filter needed.
+
+**Not hidden — still in the topology.** Excluded models that occupy cards still appear on the **card map**, folded into the grey **`other@<cluster>`** bucket (`loaded_untracked`; names on hover, e.g. `other@H100 → mistral-moderation|mxbai-embed|qwen3-reranker-0-6b`). They just don't get an individual duty/token/cost line.
+
+**Kept** = chat/instruct, vision-language (multimodal), and code LLMs (incl. in-house `spfllm`/`spsllm`).
+
+**Drop-list, Jun 22–26 pull** (for reference; all near-zero traffic except the benchmark): `gptoss-120b-benchmark` (17.9M, CI), `deepseek-ocr`, `nanonets-ocr-s`, `bge-m3-embed`, `mxbai-embed`, `qwen3-embedding-4b`, `qwen3-reranker-0-6b`, `outline-embedding`, `qwen3guard-gen-8b`, `sps-crms-test-20260520`, `MCP: list_tools`.
+
+**Naming reconciliation done (2026-06-29):** `xiaomi-mimo` (DCGM pod / card map) ↔ `xiaomi-mimo-v2-5` (LiteLLM token label) were unified on the LiteLLM name across `dim_models_rebuilt.csv`, `data_real/dim_models.csv`, `data_real/fact_card_snapshot.csv`, and `pod_model_map.py` (CORE_MAP value; key kept as the pod-core). Its cards + tokens now share one identity. *(A recurring risk: pod names and LiteLLM versioned labels can drift — when they do, the model shows cards but its tokens get dropped until reconciled.)*
+
+---
+
+## N-4. Viz 2 "Utilization by Workload" → active GPU_UTIL, 24×7 (2026-06-29)
+
+**Decision:** Viz 2 measures **active compute** (`DCGM_FI_DEV_GPU_UTIL`), **24×7 incl weekends** — *not* loaded (`FB_USED`) and *not* business-hours-only.
+
+**Why (spirit of the visual).** Viz 2's purpose is the **distribution of fleet capacity across inference / training / batch / idle**, to expose the after-hours idle the **Batch Inference Service** (runs overnight) will absorb. So: (a) it must include **overnight + weekends** — filtering to business hours (which I briefly did, mirroring duty) amputates the very idle that is the point; (b) since **models stay resident 24/7** (confirmed with maintainer), **`FB_USED` (loaded) is a flat ~54% that can't reveal idle** — the real utilisation & idle is *active compute*, so the metric must be `GPU_UTIL`. This is the original schema intent: `fact_workload_util` always had an `active_gpu_hours` = "DCGM GPU_UTIL integral" column (left blank until now). Viz 1 stays business-hours duty (requests); Viz 2 = 24×7 active compute — the contrast *is* the narrative.
+
+**Diagnostic that settled the `modelName` filter** (maintainer ran `count()` per cluster, 2026-06-29):
+| Cluster | `count(FB_USED)` | `count(…{modelName=~"NVIDIA B200|NVIDIA H100 NVL"})` |
+|---|---|---|
+| SUPERPOD (B200) | 464 | **464** (identical → `modelName` native, no under-count) |
+| prdA (H100) | 70 | **60** (filter correctly drops 10 non-NVL series; 60 = the 20 H100-NVL cards' MIG slices) |
+→ **`modelName` is a valid fleet filter** (my earlier under-count theory **refuted**). Also learned: **series ≠ physical cards** (B200 ≈ 2 series/card → 464 for 216; H100 ≈ 3 MIG/card → 60 for 20) so per-card queries must `... by (UUID)`; and the **series count is unstable over time** (B200 128→464) = DCGM scrape gaps → use `avg()` (gap-robust), not `sum()`.
+
+**Query (DATA_REFRESH §4):** `avg( avg by (UUID)( DCGM_FI_DEV_GPU_UTIL{modelName=~"NVIDIA B200|NVIDIA H100 NVL"} ) )` — single series, 5-min step, 24×7.
+**ETL:** `fact_workload_util.py` rewritten → mean util per calendar day (all days), `allocated_gpu_hours = util% × 236 × 24` (active "consumed" card-hours), capacity `236 × 24`.
+
+**Superseded (FB_USED path, do NOT reuse for Viz 2):** v1 unfiltered+MIG-inflated rolling (`[1d:1m]*24`, gave ~18%); v2 fleet-filtered+MIG-collapsed loaded (gave ~7%, and ~7% vs the 127-loaded snapshot was never reconciled — moot now that we measure active, not loaded). The brief **business-hours** variant of Viz 2 is also dropped (Viz 2 is 24×7 by design).
+
+**Framing:** present the truth — a low 24×7 active-utilisation with a large idle band **is** the Batch-Inference efficiency case (caption it as "active compute across 24×7; idle = batch headroom"), not a fault.
+
+**Pulled & published (2026-06-29) — DONE.** GPU_UTIL pulled **per cluster** (Grafana filters per cluster: SUPERPOD=B200, prdA=H100), two files `fact_workload_util_{b200,h100}.csv`; the ETL takes each cluster's daily mean and **card-weights 216:20** into the fleet %. **H100 GPU_UTIL is reported** (the MIG caveat did not bite — no need for `GR_ENGINE_ACTIVE`). Range **Jun 19–26** (retention edge Jun 19), 24×7 incl weekends, 5-min step.
+- **Result (real, card-weighted fleet, verified vs independent recompute):** Jun 19 **3.0%** · Sat 20 **0.4%** · Sun 21 **0.3%** · Mon 22 **4.4%** · 23 **5.8%** · 24 **4.9%** · 25 **6.9%** · Fri 26 **7.4%**. The **weekend collapse to ~0%** and **~5–7% weekday** active compute (24×7) is the Batch-Inference idle case, told truthfully. Hero = latest day (Jun 26 = 7%).
+- **Viz 2 relabelled** (index.html — footnote, subtitle, hero label) from the old "Loaded ÷ capacity / framebuffer / consumed" to **"Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7 incl. weekends"**. The stale FB_USED captions were factually wrong once the metric changed.
+
+**Open / caveats:**
+- **MIG:** confirmed `GPU_UTIL` *is* reported for the H100s — but per-card averaging across MIG slices is coarse; if finer is ever needed, `DCGM_FI_PROF_GR_ENGINE_ACTIVE`/`PIPE_TENSOR_ACTIVE` are the MIG-aware signals.
+- **Adaptive window:** Viz 2 now shows whatever days the pull holds (8 now); widens as history accrues. Retention limits how far back each pull reaches.
+- The 1-layer choice (active util + idle) was deliberate — "loaded" is already carried by the donut; Viz 2 = "actually computing," the gap between them = the headroom.
 
 ---
 

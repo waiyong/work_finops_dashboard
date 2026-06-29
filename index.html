@@ -197,7 +197,7 @@
       <span class="team">AI Platform Team</span>
     </div>
     <div class="head-right">
-      <div class="updated">Last updated<br>17 Jun 2026 · 09:42 SGT</div>
+      <div class="updated" id="reportWindow">Reporting window<br>—</div>
       <div class="seg" id="envSeg" title="Data cluster">
         <button data-env="all" class="active">All</button>
         <button data-env="all">L1</button>
@@ -213,7 +213,7 @@
   <div class="row r1">
     <div class="panel">
       <h2>GPU Utilization — Top 5 Models</h2>
-      <p class="subtitle" id="dutySub">% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT) · last 14 days</p>
+      <p class="subtitle" id="dutySub">% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT)</p>
       <div class="chartbox" style="height:260px;margin-top:10px;"><canvas id="dutyChart"></canvas></div>
       <div class="fleetavg">
         <span class="big" id="fleetAvg">60%</span>
@@ -224,7 +224,7 @@
 
     <div class="panel" id="loadedDonutPanel">
       <h2>GPUs with Models Loaded</h2>
-      <p class="subtitle">Distinct GPU cards serving a model ÷ total cards · live snapshot · click a cluster to focus the map below</p>
+      <p class="subtitle">Distinct GPU cards serving a model ÷ total cards · <span id="donutAsOf">live snapshot</span> · click a cluster to focus the map below</p>
       <div class="donutwrap" style="margin-top:18px;">
         <div class="donutbox">
           <canvas id="loadedDonut" height="190"></canvas>
@@ -246,7 +246,7 @@
   <div class="row full">
     <div class="panel" id="cardMapPanel">
       <h2>GPU Card Allocation Map</h2>
-      <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · live snapshot<span id="mapFocusHint" class="focushint"></span></p>
+      <p class="subtitle">Which model sits on which physical GPU card · idle cards outlined · <span id="mapAsOf">live snapshot</span><span id="mapFocusHint" class="focushint"></span></p>
       <div class="mapgrids" id="mapGrids">
         <div class="mapcluster" id="clusterB200">
           <div class="chead"><span class="ct">SUPERPOD · B200</span><span class="cs" id="csB200"></span></div>
@@ -265,14 +265,14 @@
   <div class="row full">
     <div class="panel">
       <h2>Utilization by Workload</h2>
-      <p class="subtitle" id="viz2sub">GPU card-hours consumed ÷ available, by workload · % of farm capacity</p>
+      <p class="subtitle" id="viz2sub">Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7</p>
       <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
       <div class="fleetavg">
         <span class="big" id="farmUtilNow">—</span>
-        <span class="lab" id="farmUtilLab">farm GPU-hour utilization</span>
+        <span class="lab" id="farmUtilLab">fleet active GPU utilisation · 24×7</span>
         <span class="tgt" id="farmUtilTgt">target 85%</span>
       </div>
-      <div class="footnote"><b>Loaded ÷ capacity</b> from DCGM framebuffer (a card is loaded if a model's weights are resident). Denominator = the inference fleet (<span id="splitDenom">—</span>). <b>Idle</b> cards are the headroom; <b>Batch Inference</b> (in pipeline) runs after office hours to soak up otherwise-idle cards. <span id="dcgmIntensity"></span></div>
+      <div class="footnote"><b>Active GPU compute ÷ capacity</b> — mean DCGM GPU_UTIL across the fleet, <b>24×7</b> incl. weekends. Denominator = the inference fleet (<span id="splitDenom">—</span>). Cards stay <b>loaded but largely idle</b> — that idle is the headroom; <b>Batch Inference</b> (in pipeline) runs after office hours to soak up otherwise-idle cards. <span id="dcgmIntensity"></span></div>
     </div>
   </div>
 
@@ -342,6 +342,16 @@ function tokenTotals(){                          // fleet output tokens: latest 
   return {cur, prev, hasPrev, curM: MONTHS[i], prevM: hasPrev?MONTHS[i-1]:null,
           mom: hasPrev ? (cur - prev) / prev * 100 : null};
 }
+// Single-period (adaptive real view): describe the ACTUAL span of the underlying
+// data instead of calling 5 days a "month". WEEKS holds the finest grain available
+// (daily in the real ~5-day window), so the headline's true window = first..last WEEK.
+function tokenWindow(){
+  if(typeof WEEKS === 'undefined' || !WEEKS || !WEEKS.length) return null;
+  const a = WEEKS[0], b = WEEKS[WEEKS.length-1], n = WEEKS.length;
+  const am = a.split(' ')[0], bm = b.split(' ')[0];      // collapse same month: "Jun 15"–"Jun 19" → "Jun 15–19"
+  const span = (a === b) ? a : (am === bm ? a + '–' + b.split(' ').slice(1).join(' ') : a + ' – ' + b);
+  return span + ' · ' + n + (n === 1 ? ' day' : ' days');
+}
 function renderKPIs(env){
   const k = KPI[env];
   const dS = kpiStatus(parseFloat(k.duty),   DUTY_TARGET);
@@ -352,12 +362,12 @@ function renderKPIs(env){
     tCls = t.mom >= 0 ? 'up' : 'bad';
     tSub = (t.mom >= 0 ? '↑ ' : '↓ ') + Math.abs(t.mom).toFixed(1) + '% MoM vs ' + fmtTok(t.prev) + ' ' + t.prevM;
   } else {
-    tSub = t.curM + ' · single period (trend builds as history accumulates)';
+    tSub = tokenWindow() || (t.curM + ' · single period');
   }
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">GPU Utilization</div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
     <div class="kpi"><div class="label">GPUs Loaded</div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
-    <div class="kpi"><div class="label">Monthly Tokens (output)</div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
+    <div class="kpi"><div class="label">Tokens (output)</div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
 }
 
 /* ---- Viz 1: Duty cycle ---- */
@@ -556,14 +566,15 @@ function renderSplit(){
       scales:{x:{grid:{display:false,drawBorder:false},ticks:{maxTicksLimit:13,font:{size:10.5},autoSkip:true}},
         y:{stacked:true,min:0,max:100,grid:{color:GRID,drawBorder:false},title:{display:true,text:'% of farm GPU-hours'},ticks:{callback:v=>v+'%'}}}}
   });
+  const asOfLbl = (window.DATA_WINDOW && DATA_WINDOW.asOf) || W[0] || 'current snapshot';
   document.getElementById('farmUtilNow').textContent = FARM_UTIL.now+'%';
   document.getElementById('farmUtilLab').textContent = single
-    ? 'farm GPU-card utilization · current snapshot (workload trend builds as history accumulates)'
-    : 'farm GPU-hour utilization · up from '+FARM_UTIL.start+'% in '+W[0];
+    ? 'fleet active GPU utilisation · 24×7 · as of '+asOfLbl
+    : 'fleet active GPU utilisation · 24×7 · latest '+W[W.length-1];
   const v2s = document.getElementById('viz2sub');
   if(v2s) v2s.textContent = single
-    ? 'Loaded GPU cards ÷ fleet capacity (DCGM) · current snapshot · '+W[0]
-    : 'GPU card-hours consumed ÷ available, by workload · % of farm capacity · '+W[0]+' – '+W[W.length-1];
+    ? 'Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7 · as of '+asOfLbl
+    : 'Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7 incl. weekends · '+W[0]+' – '+W[W.length-1];
   document.getElementById('farmUtilTgt').textContent = 'target '+FARM_UTIL.target+'%';
   const totalCards = Object.values(CLUSTER_TOTAL).reduce((a,b)=>a+b,0);
   document.getElementById('splitDenom').textContent = totalCards + ' cards × 24h';
@@ -711,6 +722,15 @@ function renderNarrative(){
   document.getElementById('bridgeLoaded').textContent = pctStr(supL+proL, totB+totH);
   document.getElementById('bridgeDuty').textContent   = (csum?Math.round(wsum/csum):0)+'%';
   // cost savings headline is owned by renderCost() (handles the null/blank case)
+  // reporting window (header) + snapshot "as of" tags — all from DATA_WINDOW (computed, not typed)
+  const DW = window.DATA_WINDOW;
+  if(DW){
+    document.getElementById('reportWindow').innerHTML =
+      'Reporting window<br>' + DW.range + ' · ' + DW.days + (DW.days===1?' day':' days');
+    const asOf = 'as of ' + DW.asOf;
+    const dEl = document.getElementById('donutAsOf'); if(dEl) dEl.textContent = asOf;
+    const mEl = document.getElementById('mapAsOf');   if(mEl) mEl.textContent = asOf;
+  }
 }
 
 /* ---- Interactivity ---- */
@@ -722,7 +742,7 @@ document.getElementById('envSeg').addEventListener('click',e=>{
   renderKPIs(curEnv); renderDuty(curEnv);
   document.getElementById('dutySub').textContent =
     (curEnv==='all'?'':(curEnv==='superpod'?'SUPERPOD (B200) · ':'PROD (H100) · ')) +
-    '% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT) · last 14 days';
+    '% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT)';
 });
 // Viz 4 compute explorer: switch inference/training; expand/collapse rows.
 document.getElementById('cmpEntry').addEventListener('click',e=>{

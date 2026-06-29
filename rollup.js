@@ -79,6 +79,25 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     const dutyByUid = {};
     Object.keys(dutyT).forEach(u => dutyByUid[u] = Math.round(100 * dutyA[u] / dutyT[u]));
 
+    /* ---- DATA_WINDOW: the reporting period, computed from the duty dates (YYYY-MM-DD).
+       Single source of truth for the header window + the snapshot "as of" tags.
+       Adaptive: reflects whatever data exists (5 days now, more as history accrues). ---- */
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dDates = Array.from(new Set(dutyDaily.map(r => r.date).filter(Boolean))).sort();
+    let DATA_WINDOW = null;
+    if(dDates.length){
+      const parse = s => { const [y,m,d] = s.split('-').map(Number); return {y, m, d}; };
+      const a = parse(dDates[0]), b = parse(dDates[dDates.length-1]);
+      const dayMon = p => p.d + ' ' + MON[p.m-1];                 // "15 Jun"
+      const full   = p => dayMon(p) + ' ' + p.y;                   // "15 Jun 2026"
+      let range;
+      if(dDates.length === 1)              range = full(b);                          // single day
+      else if(a.y === b.y && a.m === b.m)  range = a.d + '–' + dayMon(b) + ' ' + b.y; // "15–19 Jun 2026"
+      else if(a.y === b.y)                 range = dayMon(a) + ' – ' + full(b);        // "29 Jun – 3 Jul 2026"
+      else                                 range = full(a) + ' – ' + full(b);         // cross-year
+      DATA_WINDOW = { range, days: dDates.length, asOf: full(b) };
+    }
+
     /* ---- MODELS[] (preserve dim_models order) ---- */
     const MODELS = models.map(m => ({
       name:    m.name,
@@ -267,6 +286,7 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     const KPI = { all: envKPI(null), superpod: envKPI('B200'), prod: envKPI('H100') };
 
     /* ---- expose globals ---- */
+    window.DATA_WINDOW   = DATA_WINDOW;    // {range, days, asOf} — header window + snapshot "as of" tags
     window.CLUSTER_TOTAL = CLUSTER_TOTAL;
     window.CLUSTER_MEM   = CLUSTER_MEM;    // cluster_id → card_memory_gb (tooltip)
     window.MODELS        = MODELS;
