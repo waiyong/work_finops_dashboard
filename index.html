@@ -289,7 +289,7 @@
   <!-- GPU utilization by workload (stacked area, full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Utilization by Workload <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Fraction of GPU compute units actively executing — how hard the cards are actually working. Measured 24×7 including weekends and overnight. Two clusters pulled separately and card-weighted (216 B200 : 20 H100) into a fleet %. Not the same as "Time in Use" (which counts request presence, not compute intensity).</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_GPU_UTIL</code></div><div class="ts"><div class="tl">PromQL (per cluster)</div><code>avg( avg by (UUID) (\n  DCGM_FI_DEV_GPU_UTIL{\n    modelName="NVIDIA B200"\n  }))</code><br>Same query with modelName="NVIDIA H100 NVL" for the H100 cluster. avg by (UUID) collapses MIG slices to physical card.</div></div></span></h2>
+      <h2>Utilization by Workload <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of time any GPU kernel was executing on each card — a per-second binary signal (kernel present: yes/no). Averaged 24×7 including weekends and overnight, card-weighted (216 B200 : 20 H100) into a fleet %. Differs from "Time in Use": (1) covers 24×7 vs business hours only; (2) is a hardware-layer signal vs LiteLLM request presence. GPU_UTIL does not measure compute intensity — for that, DCGM_FI_PROF_GR_ENGINE_ACTIVE would be needed (not yet captured).</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_GPU_UTIL</code></div><div class="ts"><div class="tl">PromQL (per cluster)</div><code>avg( avg by (UUID) (\n  DCGM_FI_DEV_GPU_UTIL{\n    modelName="NVIDIA B200"\n  }))</code><br>Same query with modelName="NVIDIA H100 NVL" for the H100 cluster. avg by (UUID) collapses MIG slices to physical card.</div></div></span></h2>
       <p class="subtitle" id="viz2sub">Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7</p>
       <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
       <div class="fleetavg">
@@ -340,7 +340,7 @@
 
 <!-- Normalized dataset lives in data/*.csv; rollup.js aggregates it into the
      render globals. Edit the CSVs to swap in real data — no code change. -->
-<script src="rollup.js?v=8"></script>
+<script src="rollup.js?v=9"></script>
 <script>
 /* ===================== SETUP ===================== */
 Chart.register(window['chartjs-plugin-annotation']);
