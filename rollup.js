@@ -50,7 +50,7 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
   }
 
   window.DATA_READY = Promise.all(FILES.map(f =>
-    fetch(DATA_DIR+f+'.csv?v=6').then(r=>{
+    fetch(DATA_DIR+f+'.csv?v=9').then(r=>{
       if(!r.ok) throw new Error('Failed to load '+DATA_DIR+f+'.csv ('+r.status+')');
       return r.text();
     }).then(parseCSV)
@@ -106,6 +106,22 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
       duty:    dutyByUid[m.model_uid] || 0,
       color:   m.color_hex,
     }));
+
+    /* ---- Guardrail: warn on any loaded card whose model_uid isn't in dim_models.
+       Such cards silently vanish from MODELS (donut/KPI/duty) while still counting
+       in the raw CARD_ROWS the card map reads → the two disagree. This is exactly
+       the xiaomi-mimo vs xiaomi-mimo-v2-5 name-mismatch class of bug. Loud > silent. */
+    (function(){
+      const known = new Set(models.map(m => m.model_uid));
+      const orphans = Object.keys(cardsByUid).filter(uid => !known.has(uid));
+      if(orphans.length){
+        const n = orphans.reduce((s,uid)=> s + cardsByUid[uid], 0);
+        console.warn('[rollup] '+n+' loaded card(s) have a model_uid not in dim_models — '
+          + 'dropped from MODELS/donut/KPI but counted in the card map (counts will disagree). '
+          + 'Fix the name in dim_models or the snapshot ETL. Orphan uids: '
+          + orphans.map(u => u+' ('+cardsByUid[u]+')').join(', '));
+      }
+    })();
 
     /* ---- weekly tokens by model → MODEL_TOKENS, WEEKS (fact_model_token_weekly) ---- */
     const WEEKS = [];
