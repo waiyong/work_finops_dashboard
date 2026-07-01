@@ -1,5 +1,7 @@
 # Prompt: GPU Farm ROI Dashboard Mockup
 
+> ⚠️ **Historical origin brief — superseded by [`README.md`](README.md).** This is the original prompt that scoped the project, kept for provenance. Several specifics here were deliberately changed during implementation (e.g. the "Are we over-provisioned?" framing → "how well/efficiently are cards used?"; the 76% target line → single 80%; the dark/Grafana theme → Apple Keynote Minimal light theme). For the current design and numbers, read `README.md`, not this file.
+
 Build a standalone HTML dashboard mockup using simulated data. This is a **senior management briefing tool** — the audience is directors and C-suite who need a 5–10 minute ROI narrative for the GPU Farm. The dashboard must be self-contained (single HTML file with embedded CSS/JS, or a small set of files). Use Chart.js or similar for charts.
 
 ---

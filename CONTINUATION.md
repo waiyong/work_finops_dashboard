@@ -12,7 +12,7 @@ There are **two views, one codebase:**
 - **`index.html`** → the tracked **simulated mock** (50 cards, 88%/60%) — the shareable baseline.
 - **`index.html?data=real`** → the **real dashboard** (236 cards, ~54% loaded) — reads gitignored **`data_real/`** (real Grafana/DCGM/LiteLLM data, **never committed**).
 
-A **real-data migration** (Grafana → CSV → dashboard) is largely done through **Phase D**. The current short-term workarounds (5-day / point-in-time data) are all logged with drop triggers for production.
+A **real-data migration** (Grafana → CSV → dashboard) is largely done through **Phase D**. The current short-term workarounds (short rolling-window / point-in-time data) are all logged with drop triggers for production.
 
 **If you read only one file, read [`project-log/REAL_DATA_MIGRATION.md`](project-log/REAL_DATA_MIGRATION.md).** It is the single source of truth for the migration's state, decisions, and patches.
 
@@ -47,12 +47,12 @@ A `favicon.ico` 404 is expected/harmless. Verify at 1920×1080 and 1366×768. Pl
 
 ---
 
-## Where the project stands (2026-06-26)
+## Where the project stands (2026-06-30)
 
 - **Mock (`data/*.csv`)** — unchanged, the tracked baseline. Coherence numbers: 44/50 loaded, 88%/60%, 240M tokens, −72% cost.
-- **Real view (`?data=real`)** — Phase D done. **Real now:** 236-card map, donut 127/236 (53.8%), duty from LiteLLM, real Org→App→Model tokens (Viz 4), real token trend (Viz 6, 5 daily points), Viz 2 utilisation (54%, from the card snapshot).
-- **Adaptive, not fabricated** — trend visuals show only the real ~5-day window and auto-fill as history accumulates (no simulated history). Token-KPI MoM is hidden until ≥2 periods exist.
-- **Still mock/placeholder on the real view** — Viz 4 **training** GPU-hrs (Slurm not ingested), **cost rates** ($0.20 placeholder; admin to supply real $/1M), Viz 2 is a single snapshot point.
+- **Real view (`?data=real`)** — Phase D done. **Real now:** 236-card map, donut 127/236 (53.8%), duty from LiteLLM, real Org→App→Model tokens (Viz 4), real token trend (Viz 6, the real rolling window), Viz 2 = active GPU_UTIL daily series (24×7, card-weighted across both clusters).
+- **Adaptive, not fabricated** — trend visuals show the real rolling window (auto-widens as data accumulates) rather than simulated history. Token-KPI MoM is hidden until ≥2 periods exist. *(Exception: `fact_workload_util` Jun 15–18 was backfilled by hand to extend the Viz 2 series — see `RAW_DATA/DATA_REFRESH.md`.)*
+- **Still mock/placeholder on the real view** — Viz 4 **training** GPU-hrs (Slurm not ingested), **cost rates** ($0.20 placeholder; admin to supply real $/1M).
 
 ## What's outstanding (see §O + §T in the tracker)
 - **A3** — pull `team_id` (UUID) as the rename-proof join key.

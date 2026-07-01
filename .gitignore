@@ -12,5 +12,8 @@ RAW_DATA/
 __pycache__/
 *.pyc
 
+# Working/debug screenshots — not part of the deliverable
+*.png
+
 # Real (confidential) dashboard dataset — local-only, never commit
 data_real/
