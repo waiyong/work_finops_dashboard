@@ -216,13 +216,17 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
 
     /* ---- COMPUTE_SPLIT: latest-month GPU-hours, Inference vs Training (the entry) ---- */
     let infHrs = 0;
+    const wlDays = [];
     workload.forEach(r => {
-      if(r.workload_type === 'inference' && (IS_REAL || r.week_start.indexOf(last + ' ') === 0)) infHrs += (+r.allocated_gpu_hours);
+      if(r.workload_type === 'inference' && (IS_REAL || r.week_start.indexOf(last + ' ') === 0)) {
+        infHrs += (+r.allocated_gpu_hours); wlDays.push(r.week_start);
+      }
     });
     const trainHrs = TRAINING_BY_ORG.reduce((s,o)=> s + o.gpuHours, 0);
-    // real view spans the whole window (may cross months) → label it as the window, not one month
+    // label the entry with the ACTUAL workload window (the days that make up the GPU-hrs),
+    // NOT the token range — the two facts have different date vintages.
     const splitPeriod = IS_REAL
-      ? (WEEKS && WEEKS.length ? (WEEKS[0] + ' – ' + WEEKS[WEEKS.length-1]) : 'window')
+      ? (wlDays.length ? (wlDays[0] + ' – ' + wlDays[wlDays.length-1]) : 'window')
       : last;
     const COMPUTE_SPLIT = { month:splitPeriod, inferenceHours:Math.round(infHrs), trainingHours:trainHrs };
 
