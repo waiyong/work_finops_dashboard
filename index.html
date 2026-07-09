@@ -43,7 +43,17 @@
   .exec .batch{color:var(--warn);font-weight:600;}
 
   /* KPI row */
-  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:28px 0 26px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:28px 0 26px;}
+  .kpis .kpi .val{font-size:36px;}
+  /* training toggle in header */
+  .switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+    font-weight:600;cursor:pointer;user-select:none;white-space:nowrap;}
+  .switch input{appearance:none;-webkit-appearance:none;width:34px;height:19px;border-radius:19px;
+    background:#D2D2D7;position:relative;cursor:pointer;transition:background .15s;flex:none;}
+  .switch input:checked{background:var(--accent);}
+  .switch input::after{content:'';position:absolute;top:2px;left:2px;width:15px;height:15px;
+    border-radius:50%;background:#fff;transition:transform .15s;}
+  .switch input:checked::after{transform:translateX(15px);}
   .kpi{background:var(--panel);border:1px solid var(--hairline);border-radius:16px;padding:20px 22px;box-shadow:var(--shadow);}
   .kpi .label{font-size:12.5px;color:var(--muted);font-weight:600;letter-spacing:.01em;}
   .kpi .val{font-size:42px;font-weight:700;letter-spacing:-.03em;margin:6px 0 2px;line-height:1;}
@@ -228,6 +238,7 @@
         <button class="soon" disabled title="Not yet available">L2</button>
         <button class="soon" disabled title="Not yet available">L3</button>
       </div>
+      <label class="switch" title="Show training workload in the Utilization by Workload &amp; Compute Usage panels"><input type="checkbox" id="trainToggle">Training</label>
     </div>
   </header>
 
@@ -236,7 +247,7 @@
   <!-- Row 1 -->
   <div class="row r1">
     <div class="panel">
-      <h2>Time in Use — Top 5 Models <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>For each model: % of business-hour 5-min windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was in flight. Top 5 ranked by this %. Fleet avg = card-weighted mean across all models.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code><br>Business-hours filter applied in ETL (Python), not in PromQL.</div></div></span></h2>
+      <h2>Time in Use — Top 5 Models <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>For each model: % of business-hour 5-min windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was served. Top 5 ranked by this %. Fleet avg = card-weighted mean across all models.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code><br>Business-hours filter applied in ETL (Python), not in PromQL.</div></div></span></h2>
       <p class="subtitle" id="dutySub">% of time with ≥1 running request · business hours (Mon–Fri 09:00–18:00 SGT)</p>
       <div class="chartbox" style="height:260px;margin-top:10px;"><canvas id="dutyChart"></canvas></div>
       <div class="fleetavg">
@@ -289,7 +300,7 @@
   <!-- GPU utilization by workload (stacked area, full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Utilization by Workload <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of time any GPU kernel was executing on each card — a per-second binary signal (kernel present: yes/no). Averaged 24×7 including weekends and overnight, card-weighted (216 B200 : 20 H100) into a fleet %. Differs from "Time in Use": (1) covers 24×7 vs business hours only; (2) is a hardware-layer signal vs LiteLLM request presence. GPU_UTIL does not measure compute intensity — for that, DCGM_FI_PROF_GR_ENGINE_ACTIVE would be needed (not yet captured).</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_GPU_UTIL</code></div><div class="ts"><div class="tl">PromQL (per cluster)</div><code>avg( avg by (UUID) (\n  DCGM_FI_DEV_GPU_UTIL{\n    modelName="NVIDIA B200"\n  }))</code><br>Same query with modelName="NVIDIA H100 NVL" for the H100 cluster. avg by (UUID) collapses MIG slices to physical card.</div></div></span></h2>
+      <h2>Utilization by Workload <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of time any GPU kernel was executing on each card — a per-second binary signal (kernel present: yes/no). Averaged 24×7 including weekends and overnight, card-weighted (64 B200 · the 8 original nodes : 20 H100) into a fleet %. Differs from "Time in Use": (1) covers 24×7 vs business hours only; (2) is a hardware-layer signal vs LiteLLM request presence. GPU_UTIL does not measure compute intensity — for that, DCGM_FI_PROF_GR_ENGINE_ACTIVE would be needed (not yet captured).</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_GPU_UTIL</code></div><div class="ts"><div class="tl">PromQL (per cluster)</div><code>avg( avg by (UUID) (\n  DCGM_FI_DEV_GPU_UTIL{\n    modelName="NVIDIA B200"\n  }))</code><br>Same query with modelName="NVIDIA H100 NVL" for the H100 cluster. avg by (UUID) collapses MIG slices to physical card.</div></div></span></h2>
       <p class="subtitle" id="viz2sub">Active GPU compute (DCGM GPU_UTIL) ÷ capacity · 24×7</p>
       <div class="chartbox" style="height:270px;margin-top:10px;"><canvas id="splitChart"></canvas></div>
       <div class="fleetavg">
@@ -304,7 +315,7 @@
   <!-- Token Output by Model (full width) -->
   <div class="row full">
     <div class="panel">
-      <h2>Token Output by Model <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Daily output tokens generated per production model (tracked generative LLMs only — excludes embeddings, rerankers, OCR, CI/benchmark traffic). Stacked total = fleet throughput. Each day = one trailing-24h total.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_output_tokens_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_output_tokens_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1d])) / 1e6</code><br>ETL takes the last reading per (model, day) — not a sum of 5-min rows.</div></div></span></h2>
+      <h2>Token Output by Model <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Daily output tokens generated per production model (tracked generative LLMs only — excludes embeddings, rerankers, OCR, and CI / health-check / synthetic load). Stacked total = fleet throughput. Each day = one trailing-24h total.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_output_tokens_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_output_tokens_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1d])) / 1e6</code><br>ETL takes the last reading per (model, day) — not a sum of 5-min rows.</div></div></span></h2>
       <p class="subtitle" id="viz6sub">Output tokens by model</p>
       <div class="chartbox" style="height:300px;margin-top:10px;"><canvas id="modelTokenChart"></canvas></div>
       <div class="footnote">Output-token generation per served model; the stacked total is <b>fleet throughput</b>, with peaks shifting as demand moves between models. A model-level lens on the same throughput shown by organisation below.</div>
@@ -322,25 +333,12 @@
     </div>
   </div>
 
-  <!-- Row 4 -->
-  <div class="row full">
-    <div class="panel">
-      <h2>Cost per Million Tokens vs Open-Model Cloud Host <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Output cost per 1M tokens: self-hosted internal rate vs the same model hosted externally. Shows whether self-hosting is cheaper. * = $0.20 placeholder (real governance rate not yet set).</div><div class="ts"><div class="tl">Internal cost source</div>Admin-provided governance rate in <code>dim_models.internal_cost_per_m_usd</code>. Not metric-derived — set by the platform team.</div><div class="ts"><div class="tl">Cloud price source</div>Manually curated from provider websites / APIs. Stored in <code>fact_model_pricing.csv</code>. No PromQL — admin-maintained input.</div></div></span></h2>
-      <p class="subtitle">Internal self-hosted vs cheapest cloud host · output USD per 1M · preliminary</p>
-      <div id="costTable" class="costtable" style="margin-top:12px;"></div>
-      <div class="fleetavg" id="costSavingsRow">
-        <span class="big" id="costSavings">—</span>
-        <span class="lab" id="costSavingsLab">—</span>
-      </div>
-      <div class="footnote">Internal = measured self-hosted output cost; <b>*</b> = $0.20 placeholder (real cost pending). Cloud = OpenRouter host output prices. Per-token cost reflects current low utilisation — see <b>Utilization by Workload</b>.</div>
-    </div>
-  </div>
 
 </div>
 
 <!-- Normalized dataset lives in data/*.csv; rollup.js aggregates it into the
      render globals. Edit the CSVs to swap in real data — no code change. -->
-<script src="rollup.js?v=12"></script>
+<script src="rollup.js?v=27"></script>
 <script>
 /* ===================== SETUP ===================== */
 Chart.register(window['chartjs-plugin-annotation']);
@@ -362,6 +360,12 @@ function kpiStatus(actual, target){            // green / amber / red by distanc
 function fmtTok(v){ return v>=1000 ? (v/1000).toFixed(1)+'B' : Math.round(v)+'M'; }
 function tokenTotals(){                          // fleet output tokens: latest vs previous period
   const i = MONTHS.length - 1;
+  // Real adaptive view: the window may straddle two PARTIAL calendar months, so a
+  // month-over-month is meaningless. Report the WHOLE reporting-window total, no MoM.
+  if(window.IS_REAL){
+    const cur = OUTPUT_FLEET.reduce((a,b)=>a+b,0);
+    return {cur, prev:null, hasPrev:false, curM: MONTHS[i], prevM:null, mom:null};
+  }
   const cur = OUTPUT_FLEET[i];
   const hasPrev = i >= 1;                        // adaptive: MoM only when ≥2 periods exist
   const prev = hasPrev ? OUTPUT_FLEET[i-1] : null;
@@ -384,16 +388,21 @@ function renderKPIs(env){
   const lS = kpiStatus(parseFloat(k.loaded), LOADED_TARGET);
   const t = tokenTotals();
   let tCls = '', tSub;
-  if(t.hasPrev){
+  if(window.IS_REAL){
+    tSub = 'Jun 2026 · SpendLogs';                 // token surfaces are a June monthly view
+  } else if(t.hasPrev){
     tCls = t.mom >= 0 ? 'up' : 'bad';
     tSub = (t.mom >= 0 ? '↑ ' : '↓ ') + Math.abs(t.mom).toFixed(1) + '% MoM vs ' + fmtTok(t.prev) + ' ' + t.prevM;
   } else {
     tSub = tokenWindow() || (t.curM + ' · single period');
   }
+  const inF = window.INPUT_FLEET;
+  const inputCard = (inF && inF.total > 0) ? `
+    <div class="kpi"><div class="label">Tokens (input) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total input (prompt) tokens the fleet processed this month, and how many were served from prompt cache. Uncached = full-price input. June 2026, from LiteLLM SpendLogs (prod).</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs</code>: Prompt_Tokens (total), Cached_Prompt_Tokens (cache reads). Uncached = total − cached.</div></div></span></div><div class="val">${fmtTok(inF.total)}</div><div class="sub">Jun 2026 · ${fmtTok(inF.uncached)} uncached · ${inF.cachePct}% cached</div></div>` : '';
   document.getElementById('kpis').innerHTML = `
-    <div class="kpi"><div class="label">Time in Use <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of business-hour windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was active. Not GPU compute intensity — a model can be "in use" while the GPU is mostly waiting between tokens.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code></div></div></span></div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
+    <div class="kpi"><div class="label">Time in Use <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of business-hour windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was served. Not GPU compute intensity — a model can be "in use" while the GPU is mostly waiting between tokens.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code></div></div></span></div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
     <div class="kpi"><div class="label">GPUs Loaded <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Physical GPU cards with a model's weights resident in framebuffer memory ÷ total fleet cards. Point-in-time snapshot. Loaded ≠ actively computing.</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_FB_USED</code></div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n} > 1024</code></div></div></span></div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
-    <div class="kpi"><div class="label">Tokens (output) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total output tokens generated by the fleet in the reporting window. Excludes CI traffic and health-check probes. Each day = one trailing-24h total (not summed from 5-min rows).</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_output_tokens_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_output_tokens_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1d])) / 1e6</code></div></div></span></div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>`;
+    <div class="kpi"><div class="label">Tokens (output) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total output (completion) tokens the fleet generated in <b>June 2026 · 1 month</b>, now sourced from <b>LiteLLM SpendLogs (prod)</b> — the same source as Tokens (input), so the two reconcile. Excludes utility models (embeddings/OCR/guardrails), CI, and health-check traffic.</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs.Completion_Tokens</code><br>summed by team → app → org (via dim_applications). Not the Prometheus counter any more.</div></div></span></div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>${inputCard}`;
 }
 
 /* ---- Viz 1: Duty cycle ---- */
@@ -569,14 +578,15 @@ function renderSplit(){
     fill:true,stack:'u',tension:0,pointRadius:single?5:0,pointHoverRadius:4,_key:key});
   const datasets=[
     band('Inference','inference',ACCENT,'rgba(0,113,227,.80)'),
-    band('Training','training',WARN,'rgba(217,138,43,.82)'),
     band('Batch Inference','batch',TEAL,'rgba(48,176,199,.82)'),
     band('Idle','idle','#C7C7CC','rgba(120,120,128,.12)'),
   ];
+  if(showTraining) datasets.splice(1, 0, band('Training','training',WARN,'rgba(217,138,43,.82)'));
   const fmt=n=>Math.round(n).toLocaleString();
   const cap=i=>SPLIT_HOURS.capacity[i];
   const hrs=(k,i)=> k==='idle' ? cap(i)-(SPLIT_HOURS.inference[i]+SPLIT_HOURS.training[i]+SPLIT_HOURS.batch[i]) : SPLIT_HOURS[k][i];
-  new Chart(document.getElementById('splitChart'),{
+  if(splitChart) splitChart.destroy();
+  splitChart = new Chart(document.getElementById('splitChart'),{
     type:'line',
     data:{labels:W,datasets},
     options:{maintainAspectRatio:false,
@@ -657,6 +667,8 @@ function renderModelTokens(){
 /* ---- Viz 4: Tokens by HTD ---- */
 /* ---- Viz 4: Compute Usage & Cost by Organisation (entry → drill) ---- */
 let cmpView = 'inference';        // 'inference' | 'training'
+let showTraining = false;         // header toggle → show/hide Training in Viz 2 + Viz 4
+let splitChart;                   // Viz 2 chart handle (destroy before re-render)
 const cmpExpanded = {};           // expanded org/app row keys
 const fmtM   = v => (Math.round(v*10)/10).toLocaleString(undefined,{maximumFractionDigits:1}) + 'M';
 const fmtUSD = v => '$' + Math.round(v).toLocaleString();
@@ -674,7 +686,7 @@ function renderComputeEntry(){
       <span class="cmpseg-pct">${sub}</span>
     </button>`;
   };
-  const trnSeg = hasTraining ? seg('training','Training', cs.trainingHours)
+  const trnSeg = !showTraining ? '' : hasTraining ? seg('training','Training', cs.trainingHours)
     : `<button class="cmpseg ${cmpView==='training'?'active':''}" data-view="training">
         <span class="cmpseg-lab">Training</span>
         <span class="cmpseg-val muted">not captured yet</span>
@@ -687,25 +699,27 @@ function renderComputeEntry(){
     ? 'GPU-hours split inference vs training · click a workload to break down by organisation · '+cs.month
     : 'Inference active GPU-hours by organisation · click a row to break down · training not captured yet · '+cs.month;
   document.getElementById('cmpHint').textContent = cmpView==='inference'
-    ? 'Output tokens & internal cost by organisation → application → model. Click a row to expand.'
+    ? 'Input & output tokens by organisation → application → model · June 2026 (1 month, LiteLLM SpendLogs). Click a row to expand.'
     : (hasTraining ? 'Training GPU-hours & cost (GPU-hours × $/GPU-hour) by organisation.'
                    : 'Training metrics are not captured yet — Slurm exporter pending.');
 }
 function renderInferenceTable(){
-  let h = '<table><thead><tr><th>Organisation → Application → Model</th><th>Output tokens</th><th>Cost (internal)</th></tr></thead><tbody>';
+  const fI = v => fmtTok(v);   // input tokens (billions)
+  let h = '<table><thead><tr><th>Organisation → Application → Model</th><th>Input tokens</th><th>Uncached</th><th>Cache hit</th><th>Output tokens</th></tr></thead><tbody>';
   INFERENCE_TREE.forEach((o,oi)=>{
     const ok='o'+oi, oe=!!cmpExpanded[ok];
-    h += `<tr class="lvl0 expander" data-key="${ok}"><td><span class="chev ${oe?'open':''}"></span><span class="dot" style="background:${o.color}"></span>${o.org}</td><td>${fmtM(o.tokens)}</td><td>${fmtUSD(o.cost)}</td></tr>`;
+    h += `<tr class="lvl0 expander" data-key="${ok}"><td><span class="chev ${oe?'open':''}"></span><span class="dot" style="background:${o.color}"></span>${o.org}</td><td>${fI(o.inp)}</td><td>${fI(o.unc)}</td><td>${o.cachePct}%</td><td>${fmtM(o.tokens)}</td></tr>`;
     if(oe) o.apps.forEach((a,ai)=>{
       const ak=ok+'a'+ai, ae=!!cmpExpanded[ak];
-      h += `<tr class="lvl1 expander" data-key="${ak}"><td><span class="chev ${ae?'open':''}"></span>${a.name}</td><td>${fmtM(a.tokens)}</td><td>${fmtUSD(a.cost)}</td></tr>`;
+      h += `<tr class="lvl1 expander" data-key="${ak}"><td><span class="chev ${ae?'open':''}"></span>${a.name}</td><td>${fI(a.inp)}</td><td>${fI(a.unc)}</td><td>${a.cachePct}%</td><td>${fmtM(a.tokens)}</td></tr>`;
       if(ae) a.models.forEach(m=>{
-        h += `<tr class="lvl2"><td>${m.name}</td><td>${fmtM(m.tokens)}</td><td>${fmtUSD(m.cost)}</td></tr>`;
+        h += `<tr class="lvl2"><td>${m.name}</td><td>${fI(m.inp)}</td><td>${fI(m.unc)}</td><td>${m.cachePct}%</td><td>${fmtM(m.tokens)}</td></tr>`;
       });
     });
   });
-  const tt = INFERENCE_TREE.reduce((a,o)=>({t:a.t+o.tokens, c:a.c+o.cost}),{t:0,c:0});
-  h += `<tr class="total"><td>Total · all organisations</td><td>${fmtM(tt.t)}</td><td>${fmtUSD(tt.c)}</td></tr></tbody></table>`;
+  const tt = INFERENCE_TREE.reduce((a,o)=>({i:a.i+o.inp, h:a.h+o.cch, t:a.t+o.tokens}),{i:0,h:0,t:0});
+  const tpct = tt.i ? Math.round(tt.h/tt.i*100) : 0;
+  h += `<tr class="total"><td>Total · all organisations</td><td>${fI(tt.i)}</td><td>${fI(tt.i-tt.h)}</td><td>${tpct}%</td><td>${fmtM(tt.t)}</td></tr></tbody></table>`;
   document.getElementById('cmpDrill').innerHTML = h;
 }
 function renderTrainingByOrg(){
@@ -723,49 +737,12 @@ function renderTrainingByOrg(){
   document.getElementById('cmpDrill').innerHTML = h;
 }
 function renderCompute(){
+  if(!showTraining) cmpView = 'inference';        // training hidden → force inference view
   renderComputeEntry();
   if(cmpView==='inference') renderInferenceTable(); else renderTrainingByOrg();
 }
 
 /* ---- Viz 5: Cost ---- */
-function renderCost(){
-  const provs = PRICING_PROVIDERS, isInt = p=>/internal/i.test(p);
-  const fmt = v => '$'+v.toFixed(2);
-  let html = '<table><thead><tr><th>Model</th><th class="ours">Internal $/1M</th>'
-           + '<th>Cloud hosts (output $/1M)</th><th>vs cheapest cloud</th></tr></thead><tbody>';
-  COSTS.forEach(c=>{
-    const hosts = provs.filter(p=>!isInt(p) && c.prices[p]!=null)
-                       .map(p=>({name:p, price:c.prices[p]})).sort((a,b)=>a.price-b.price);
-    const cheap = hosts.length ? hosts[0].price : null;
-    const intCell = c.internal==null ? '<span class="muted">—</span>'
-                  : fmt(c.internal) + (c.measured ? '' : ' <span class="muted">*</span>');
-    const hostsCell = hosts.length
-      ? hosts.map((h,i)=>`<span class="${i===0?'cheapest':''}">${h.name} ${fmt(h.price)}</span>`).join(' · ')
-      : '<span class="muted">—</span>';
-    let deltaCell = '<span class="muted">—</span>';
-    if(c.measured && cheap!=null && cheap>0){
-      const pct = Math.round((cheap - c.internal)/cheap*100);   // + cheaper, − costlier
-      deltaCell = pct>=0 ? `<span class="up">${pct}% cheaper</span>`
-                         : `<span class="bad">${Math.abs(pct)}% costlier</span>`;
-    }
-    html += `<tr><td class="model">${c.model}</td><td class="ours">${intCell}</td>`
-          + `<td>${hostsCell}</td><td>${deltaCell}</td></tr>`;
-  });
-  html += '</tbody></table>';
-  document.getElementById('costTable').innerHTML = html;
-  const row = document.getElementById('costSavingsRow');
-  const big = document.getElementById('costSavings');
-  const lab = document.getElementById('costSavingsLab');
-  if(COST_SAVINGS==null){ row.style.display='none'; }
-  else if(COST_SAVINGS>=0){
-    row.style.display=''; big.textContent = COST_SAVINGS+'%'; big.className='big';
-    lab.textContent = 'cheaper than cheapest cloud · token-weighted, measured models only';
-  } else {
-    row.style.display=''; big.textContent = Math.abs(COST_SAVINGS)+'%'; big.className='big bad';
-    lab.textContent = 'MORE expensive than cheapest cloud at current utilisation · token-weighted, measured models only';
-  }
-}
-
 /* ---- Narrative numbers (computed — no hand-typed figures) ---- */
 function setRow(key, loaded, total){
   document.getElementById('row'+key+'num').textContent = loaded+' / '+total;
@@ -786,7 +763,6 @@ function renderNarrative(){
   setRow('All',  supL+proL, totB+totH);
   document.getElementById('bridgeLoaded').textContent = pctStr(supL+proL, totB+totH);
   document.getElementById('bridgeDuty').textContent   = (csum?Math.round(wsum/csum):0)+'%';
-  // cost savings headline is owned by renderCost() (handles the null/blank case)
   // reporting window (header) + snapshot "as of" tags — all from DATA_WINDOW (computed, not typed)
   const DW = window.DATA_WINDOW;
   if(DW){
@@ -813,6 +789,10 @@ document.getElementById('envSeg').addEventListener('click',e=>{
 document.getElementById('cmpEntry').addEventListener('click',e=>{
   const b=e.target.closest('.cmpseg'); if(!b) return;
   cmpView=b.dataset.view; renderCompute();
+});
+document.getElementById('trainToggle').addEventListener('change',e=>{
+  showTraining = e.target.checked;
+  renderSplit(); renderCompute();          // re-render Viz 2 + Viz 4 with/without training
 });
 document.getElementById('cmpDrill').addEventListener('click',e=>{
   const row=e.target.closest('.expander'); if(!row) return;
@@ -860,7 +840,6 @@ DATA_READY.then(()=>{
   renderSplit();
   renderModelTokens();
   renderCompute();
-  renderCost();
 }).catch(err=>{
   console.error(err);
   document.body.insertAdjacentHTML('afterbegin',

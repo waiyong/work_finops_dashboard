@@ -50,7 +50,7 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
   }
 
   window.DATA_READY = Promise.all(FILES.map(f =>
-    fetch(DATA_DIR+f+'.csv?v=9').then(r=>{
+    fetch(DATA_DIR+f+'.csv?v=19').then(r=>{
       if(!r.ok) throw new Error('Failed to load '+DATA_DIR+f+'.csv ('+r.status+')');
       return r.text();
     }).then(parseCSV)
@@ -58,6 +58,10 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
 
   function build(clusters, models, orgs, apps, gpuPricing, cards, dutyDaily, workload, tokMonthly, tokWeekly, pricing, training){
     const round1 = v => Math.round(v*10)/10;
+    /* Real adaptive view: the token facts are a short rolling window that may straddle
+       two partial calendar months, so "latest month" is meaningless. Report the WHOLE
+       window for the Tokens KPI + Viz 4 instead. Mock (data/) keeps its 6 full months. */
+    const IS_REAL = DATA_DIR === 'data_real/';
 
     /* ---- dimensions ---- */
     const CLUSTER_TOTAL = {}, CLUSTER_MEM = {};
@@ -162,29 +166,41 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     const OUTPUT_FLEET_R = OUTPUT_FLEET.map(v => Math.round(v));
     const last = MONTHS[MONTHS.length - 1];
 
-    /* ---- INFERENCE_TREE: latest-month Org → App → Model with tokens + internal cost ----
-     * cost ($) = output_tokens_m × internal_$/1M ; parents roll up Σ children.            */
+    /* ---- INFERENCE_TREE: Org → App → Model with input (+cached) & output tokens ----
+     * Real view = June from LiteLLM SpendLogs (input_tokens_m, input_cached_tokens_m,
+     * output_tokens_m). tokens=output; inp=total input; cch=cached input; unc=input−cached;
+     * cachePct=cached/input. Parents roll up Σ children; sorted by input (the headline). */
     const tmp = {};
-    tokMonthly.filter(r => r.month === last).forEach(r => {
+    (IS_REAL ? tokMonthly : tokMonthly.filter(r => r.month === last)).forEach(r => {
       const ai = appInfo[r.app_id]; if(!ai) return;
       const m = modelByUid[r.model_uid]; const mn = m ? m.name : r.model_uid;
       const tok = +r.output_tokens_m, cost = tok * (internalByName[mn] || 0);
+      const inp = +(r.input_tokens_m||0), cch = +(r.input_cached_tokens_m||0);
       ((tmp[ai.org] = tmp[ai.org] || {})[ai.name] = tmp[ai.org][ai.name] || {});
-      const leaf = tmp[ai.org][ai.name][mn] = tmp[ai.org][ai.name][mn] || { tokens:0, cost:0 };
-      leaf.tokens += tok; leaf.cost += cost;
+      const leaf = tmp[ai.org][ai.name][mn] = tmp[ai.org][ai.name][mn] || { tokens:0, cost:0, inp:0, cch:0 };
+      leaf.tokens += tok; leaf.cost += cost; leaf.inp += inp; leaf.cch += cch;
     });
-    const sum = arr => arr.reduce((a,x)=>({t:a.t+x.tokens, c:a.c+x.cost}), {t:0,c:0});
+    const sum = arr => arr.reduce((a,x)=>({t:a.t+x.tokens, c:a.c+x.cost, i:a.i+x.inp, h:a.h+x.cch}), {t:0,c:0,i:0,h:0});
+    const node = (s, extra) => Object.assign({
+      tokens:+s.t.toFixed(1), cost:+s.c.toFixed(2), inp:+s.i.toFixed(1), cch:+s.h.toFixed(1),
+      unc:+(s.i-s.h).toFixed(1), cachePct: s.i ? Math.round(s.h/s.i*100) : 0 }, extra);
     const INFERENCE_TREE = ORGS.filter(o=>tmp[o]).map(org => {
       const appsA = Object.keys(tmp[org]).map(app => {
-        const modelsA = Object.keys(tmp[org][app]).map(mn => ({
-          name:mn, tokens:+tmp[org][app][mn].tokens.toFixed(1), cost:+tmp[org][app][mn].cost.toFixed(2)
-        })).sort((a,b)=> b.tokens - a.tokens);
-        const s = sum(modelsA);
-        return { name:app, tokens:+s.t.toFixed(1), cost:+s.c.toFixed(2), models:modelsA };
-      }).sort((a,b)=> b.tokens - a.tokens);
-      const s = sum(appsA);
-      return { org, color:ORG_COLOR[org], tokens:+s.t.toFixed(1), cost:+s.c.toFixed(2), apps:appsA };
-    }).sort((a,b)=> b.tokens - a.tokens);
+        const modelsA = Object.keys(tmp[org][app]).map(mn => {
+          const L = tmp[org][app][mn];
+          return node({t:L.tokens, c:L.cost, i:L.inp, h:L.cch}, { name:mn });
+        }).sort((a,b)=> b.inp - a.inp);
+        return node(sum(modelsA), { name:app, models:modelsA });
+      }).sort((a,b)=> b.inp - a.inp);
+      return node(sum(appsA), { org, color:ORG_COLOR[org], apps:appsA });
+    }).sort((a,b)=> b.inp - a.inp);
+    /* fleet input totals for the Tokens (input) KPI */
+    let inFleet = 0, cchFleet = 0;
+    (IS_REAL ? tokMonthly : tokMonthly.filter(r => r.month === last)).forEach(r => {
+      inFleet += +(r.input_tokens_m||0); cchFleet += +(r.input_cached_tokens_m||0);
+    });
+    const INPUT_FLEET = { total:Math.round(inFleet), cached:Math.round(cchFleet),
+      uncached:Math.round(inFleet-cchFleet), cachePct: inFleet ? Math.round(cchFleet/inFleet*100) : 0 };
 
     /* ---- TRAINING_BY_ORG: latest-month org → GPU-hours + cost (hours × $/GPU-hr) ---- */
     const trainTmp = {};
@@ -201,10 +217,14 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     /* ---- COMPUTE_SPLIT: latest-month GPU-hours, Inference vs Training (the entry) ---- */
     let infHrs = 0;
     workload.forEach(r => {
-      if(r.workload_type === 'inference' && r.week_start.indexOf(last + ' ') === 0) infHrs += (+r.allocated_gpu_hours);
+      if(r.workload_type === 'inference' && (IS_REAL || r.week_start.indexOf(last + ' ') === 0)) infHrs += (+r.allocated_gpu_hours);
     });
     const trainHrs = TRAINING_BY_ORG.reduce((s,o)=> s + o.gpuHours, 0);
-    const COMPUTE_SPLIT = { month:last, inferenceHours:Math.round(infHrs), trainingHours:trainHrs };
+    // real view spans the whole window (may cross months) → label it as the window, not one month
+    const splitPeriod = IS_REAL
+      ? (WEEKS && WEEKS.length ? (WEEKS[0] + ' – ' + WEEKS[WEEKS.length-1]) : 'window')
+      : last;
+    const COMPUTE_SPLIT = { month:splitPeriod, inferenceHours:Math.round(infHrs), trainingHours:trainHrs };
 
     /* ---- Workload GPU-hours → SPLIT (% of farm capacity + idle), weekly ----
      * GPU-hours are DERIVED card-time (K8s/Slurm allocation; DCGM util for the
@@ -314,11 +334,13 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     window.CARD_ROWS     = cards;          // raw per-card snapshot rows (model_uid, card_slot, models_on_card) — Viz 3b real placement + MIG hover
     window.WEEKS         = WEEKS;
     window.MODEL_TOKENS  = MODEL_TOKENS;
+    window.IS_REAL       = IS_REAL;                 // real adaptive view → whole-window token reporting
     window.MONTHS        = MONTHS;
     window.OUTPUT_FLEET  = OUTPUT_FLEET_R;          // monthly fleet output (M) for the Tokens KPI
     window.ORGS          = ORGS;
     window.ORG_COLOR     = ORG_COLOR;
-    window.INFERENCE_TREE = INFERENCE_TREE;         // Org → App → Model (tokens + cost), latest month
+    window.INFERENCE_TREE = INFERENCE_TREE;         // Org → App → Model (input/cached/output tokens)
+    window.INPUT_FLEET    = INPUT_FLEET;            // {total,cached,uncached,cachePct} — Tokens (input) KPI
     window.TRAINING_BY_ORG = TRAINING_BY_ORG;       // org → GPU-hours + cost, latest month
     window.COMPUTE_SPLIT = COMPUTE_SPLIT;           // {inferenceHours, trainingHours} entry
     window.SPLIT         = SPLIT;
