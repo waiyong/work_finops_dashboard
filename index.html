@@ -43,7 +43,11 @@
   .exec .batch{color:var(--warn);font-weight:600;}
 
   /* KPI row */
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:28px 0 26px;}
+  .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:28px 0 26px;}
+  @media (min-width:1121px){
+    .kpis{grid-template-columns:repeat(4,1fr);}
+    .kpis.cols5{grid-template-columns:repeat(5,1fr);}
+  }
   .kpis .kpi .val{font-size:36px;}
   /* training toggle in header */
   .switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
@@ -63,6 +67,43 @@
   .kpi .val.good{color:var(--good);}  .kpi .sub.good{color:var(--good);font-weight:600;}
   .kpi .val.warn{color:var(--warn);}  .kpi .sub.warn{color:var(--warn);font-weight:600;}
   .kpi .val.bad{color:var(--bad);}    .kpi .sub.bad{color:var(--bad);font-weight:600;}
+
+  /* Token-capacity hero band. Deliberately NOT styled as a 5th .kpi: the KPI cards are
+     MEASURED actuals over the whole fleet, this is a MODELLED ceiling over the B200 subset.
+     The accent tint is the visual signal that it is a different kind of number. */
+  /* .panel.hero, not .hero — .panel is declared later and would otherwise win the background */
+  .panel.hero{background:var(--accent-soft);border-color:#CFE3FA;}
+  .hero .subtitle{margin-bottom:0;}
+  .hero .herotop{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;}
+  .herofigs{display:flex;gap:44px;flex-wrap:wrap;margin:18px 0 4px;}
+  .herofig .hval{font-size:40px;font-weight:700;letter-spacing:-.03em;line-height:1;color:var(--ink);}
+  .herofig .hval .u{font-size:17px;font-weight:600;letter-spacing:0;color:var(--muted);margin-left:5px;}
+  .herofig .hlab{font-size:12.5px;font-weight:600;color:var(--ink);margin-top:8px;}
+  .herofig .hsub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .herofig.lead .hval{color:var(--accent);}
+  .sizing{font-size:12.5px;color:var(--ink);background:rgba(255,255,255,.72);border:1px solid #CFE3FA;
+    border-radius:10px;padding:9px 12px;margin:14px 0 16px;}
+  .sizing b{font-weight:700;}
+  .hbarlab{font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:6px;letter-spacing:.02em;}
+  .hbar{display:flex;height:26px;border-radius:7px;overflow:hidden;background:#fff;border:1px solid #CFE3FA;}
+  .hbar span{display:block;height:100%;}
+  .hbar.actual{height:12px;margin-top:7px;background:#fff;}
+  .hbar.actual span{background:var(--ink);}
+  .hbarfoot{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:6px;}
+  .hlegend{display:flex;flex-wrap:wrap;gap:5px 16px;font-size:11.5px;color:var(--muted);margin-top:9px;}
+  .hlegend i{display:inline-block;width:9px;height:9px;border-radius:2.5px;margin-right:5px;vertical-align:-1px;}
+  .arche{margin-top:16px;font-size:12px;}
+  .arche .at{font-size:11.5px;font-weight:600;color:var(--muted);letter-spacing:.02em;margin-bottom:6px;}
+  .arche table{width:100%;border-collapse:collapse;}
+  .arche td{padding:4px 0;border-bottom:1px solid #DCEAFA;color:var(--ink);}
+  .arche td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap;}
+  .arche td.m{color:var(--muted);font-size:11.5px;}
+  .arche tr:last-child td{border-bottom:0;}
+  .arche tr.thead td{font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid #CFE3FA;
+    letter-spacing:.02em;padding-bottom:6px;}
+  .arche tr.thead td.r{font-weight:600;}
+  .arche tr.ttot td{border-top:1px solid #CFE3FA;border-bottom:0;padding-top:7px;font-weight:700;}
+  .arche .dot{display:inline-block;width:9px;height:9px;border-radius:2.5px;margin-right:7px;vertical-align:-1px;}
 
   /* Rows / panels */
   .row{display:grid;gap:18px;margin-bottom:18px;}
@@ -216,7 +257,6 @@
   .kpi .infobtn .infotip{width:300px;}
 
   @media (max-width:1120px){
-    .kpis{grid-template-columns:repeat(2,1fr);}
     .row.r1,.row.r3{grid-template-columns:1fr;}
     .mapgrids{grid-template-columns:1fr;}
   }
@@ -231,7 +271,7 @@
       <span class="team">AI Platform Team</span>
     </div>
     <div class="head-right">
-      <div class="updated" id="reportWindow">Reporting window<br>—</div>
+      <div class="updated" id="reportWindow">Data as of<br>—</div>
       <div class="seg" id="envSeg" title="Data cluster">
         <button data-env="all" class="active">All</button>
         <button data-env="all">L1</button>
@@ -243,6 +283,10 @@
   </header>
 
   <div class="kpis" id="kpis"></div>
+
+  <!-- Model Throughput is now a KPI card (see renderKPIs); the measured-capacity hero band was
+       retired 2026-07-15 in favour of a single reported figure. -->
+
 
   <!-- Row 1 -->
   <div class="row r1">
@@ -326,7 +370,7 @@
   <div class="row full">
     <div class="panel">
       <h2>Compute Usage &amp; Cost by Organisation <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Inference: output tokens and internal cost broken down by Organisation → Application → Model. Cost = tokens × admin-set $/1M governance rate. Training: GPU-hours and cost by org (not yet captured — Slurm exporter pending).</div><div class="ts"><div class="tl">Raw metric (inference)</div><code>litellm_output_tokens_metric_total</code><br>with <code>team_alias</code> label → mapped to org via dim_applications.</div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (team_alias, model) (\n  increase(\n    litellm_output_tokens_metric_total{\n      model!="unknown",\n      team_alias!="litellm-internal-health-check"\n    }[1d])) / 1e6</code><br><code>org_alias</code> not configured — org mapped via <code>dim_applications.csv</code> in ETL.</div></div></span></h2>
-      <p class="subtitle" id="cmpSub">GPU-hours split inference vs training · click a workload to break down by organisation · June 2026</p>
+      <p class="subtitle" id="cmpSub">Input & output tokens by organisation → application → model · June 2026 · click a row to break down</p>
       <div class="cmpentry" id="cmpEntry"></div>
       <div class="cmphint" id="cmpHint"></div>
       <div id="cmpDrill" class="costtable"></div>
@@ -338,7 +382,7 @@
 
 <!-- Normalized dataset lives in data/*.csv; rollup.js aggregates it into the
      render globals. Edit the CSVs to swap in real data — no code change. -->
-<script src="rollup.js?v=28"></script>
+<script src="rollup.js?v=35"></script>
 <script>
 /* ===================== SETUP ===================== */
 Chart.register(window['chartjs-plugin-annotation']);
@@ -396,13 +440,18 @@ function renderKPIs(env){
   } else {
     tSub = tokenWindow() || (t.curM + ' · single period');
   }
+  const tputCard = (window.AVG_GPU_THROUGHPUT_PCT != null) ? `
+    <div class="kpi"><div class="label">Average GPU Throughput <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Estimated average output throughput per GPU across the fleet, expressed as a share of theoretical capacity. <b>Reporting placeholder</b> — an offline estimate (Excel), not yet computed from live telemetry.</div><div class="ts"><div class="tl">Source</div>Admin-provided figure held in <code>rollup.js</code> (<code>AVG_GPU_THROUGHPUT_PCT</code>); replace with a telemetry-computed value when the methodology is finalized.</div></div></span></div><div class="val">${window.AVG_GPU_THROUGHPUT_PCT}%</div><div class="sub"></div></div>` : '';
   const inF = window.INPUT_FLEET;
   const inputCard = (inF && inF.total > 0) ? `
-    <div class="kpi"><div class="label">Tokens (input) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total input (prompt) tokens the fleet processed this month, and how many were served from prompt cache. Uncached = full-price input. June 2026, from LiteLLM SpendLogs (prod).</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs</code>: Prompt_Tokens (total), Cached_Prompt_Tokens (cache reads). Uncached = total − cached.</div></div></span></div><div class="val">${fmtTok(inF.total)}</div><div class="sub">Jun 2026 · ${fmtTok(inF.uncached)} uncached · ${inF.cachePct}% cached</div></div>` : '';
+    <div class="kpi"><div class="label">Tokens (input) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Uncached (full-price) input tokens the fleet processed this month — the portion that actually consumes GPU compute. Cache hits are near-free to serve and shown as the smaller figure. June 2026, from LiteLLM SpendLogs (prod).</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs</code>: Prompt_Tokens (total), Cached_Prompt_Tokens (cache reads). Uncached = total − cached.</div></div></span></div><div class="val">${fmtTok(inF.uncached)}</div><div class="sub">Jun 2026 · ${fmtTok(inF.cached)} cached (${inF.cachePct}%)</div></div>` : '';
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">Time in Use <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>% of business-hour windows (Mon–Fri 09:00–18:00 SGT) where ≥1 real user request was served. Not GPU compute intensity — a model can be "in use" while the GPU is mostly waiting between tokens.</div><div class="ts"><div class="tl">Raw metric</div><code>litellm_requests_metric_total</code></div><div class="ts"><div class="tl">PromQL (ETL input)</div><code>sum by (model) (increase(\n  litellm_requests_metric_total{\n    model!="unknown",\n    team_alias!="litellm-internal-health-check"\n  }[1m]))</code></div></div></span></div><div class="val ${dS}">${k.duty}</div><div class="sub ${dS}">${k.dutySub}</div></div>
     <div class="kpi"><div class="label">GPUs Loaded <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Physical GPU cards with a model's weights resident in framebuffer memory ÷ total fleet cards. Point-in-time snapshot. Loaded ≠ actively computing.</div><div class="ts"><div class="tl">Raw metric</div><code>DCGM_FI_DEV_FB_USED</code></div><div class="ts"><div class="tl">PromQL</div><code>DCGM_FI_DEV_FB_USED{\n  modelName=~"NVIDIA B200|NVIDIA H100 NVL"\n} > 1024</code></div></div></span></div><div class="val ${lS}">${k.loaded}</div><div class="sub ${lS}">${k.loadedSub}</div></div>
-    <div class="kpi"><div class="label">Tokens (output) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total output (completion) tokens the fleet generated in <b>June 2026 · 1 month</b>, now sourced from <b>LiteLLM SpendLogs (prod)</b> — the same source as Tokens (input), so the two reconcile. Excludes utility models (embeddings/OCR/guardrails), CI, and health-check traffic.</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs.Completion_Tokens</code><br>summed by team → app → org (via dim_applications). Not the Prometheus counter any more.</div></div></span></div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>${inputCard}`;
+    <div class="kpi"><div class="label">Tokens (output) <span class="infobtn" tabindex="0">ⓘ<div class="infotip"><div class="ts"><div class="tl">What this measures</div>Total output (completion) tokens the fleet generated in <b>June 2026 · 1 month</b>, now sourced from <b>LiteLLM SpendLogs (prod)</b> — the same source as Tokens (input), so the two reconcile. Excludes utility models (embeddings/OCR/guardrails), CI, and health-check traffic.</div><div class="ts"><div class="tl">Source</div><code>LiteLLM_SpendLogs.Completion_Tokens</code><br>summed by team → app → org (via dim_applications). Not the Prometheus counter any more.</div></div></span></div><div class="val">${fmtTok(t.cur)}</div><div class="sub ${tCls}">${tSub}</div></div>${inputCard}${tputCard}`;
+  // grid columns follow the card count: 4 (mock, no input card) or 5 (real, with input card)
+  const n = 3 + (inputCard ? 1 : 0) + (tputCard ? 1 : 0);
+  document.getElementById('kpis').classList.toggle('cols5', n >= 5);
 }
 
 /* ---- Viz 1: Duty cycle ---- */
@@ -634,7 +683,11 @@ if(window.Chart && Chart.Tooltip && !Chart.Tooltip.positioners.cursorRight){
   Chart.Tooltip.positioners.cursorRight = (items, evt) => ({ x: evt.x + 16, y: evt.y });
 }
 function renderModelTokens(){
-  const datasets = MODELS.map(m=>({
+  // skip models with no token activity in the window — avoids flat/empty legend clutter
+  // (e.g. deployed-but-idle models, or utility models parked under an app in Viz 4 but not
+  // otherwise plotted here)
+  const activeModels = MODELS.filter(m => (MODEL_TOKENS[m.name]||[]).some(v => v));
+  const datasets = activeModels.map(m=>({
     label:m.name,
     data:MODEL_TOKENS[m.name]||[],
     borderColor:m.color,
@@ -737,9 +790,18 @@ function renderTrainingByOrg(){
   document.getElementById('cmpDrill').innerHTML = h;
 }
 function renderCompute(){
-  if(!showTraining) cmpView = 'inference';        // training hidden → force inference view
-  renderComputeEntry();
-  if(cmpView==='inference') renderInferenceTable(); else renderTrainingByOrg();
+  // GPU-hours entry (Inference/Training segmented buttons) temporarily hidden — the real-view
+  // "Inference GPU-hrs" figure is only a ~6-day rolling DCGM sample (Prometheus retention),
+  // not a June-month figure, and would misrepresent the panel if shown alongside the token
+  // table below (which IS full-June, from SpendLogs). Re-enable once a longer-retention
+  // metrics backend (or an accumulated multi-week pull) gives a trustworthy monthly number.
+  cmpView = 'inference';
+  document.getElementById('cmpEntry').innerHTML = '';
+  const sub = document.getElementById('cmpSub');
+  if(sub) sub.textContent = 'Input & output tokens by organisation → application → model · June 2026 · click a row to break down';
+  document.getElementById('cmpHint').textContent =
+    'Input & output tokens by organisation → application → model · June 2026 (1 month, LiteLLM SpendLogs). Click a row to expand.';
+  renderInferenceTable();
 }
 
 /* ---- Viz 5: Cost ---- */
@@ -763,11 +825,12 @@ function renderNarrative(){
   setRow('All',  supL+proL, totB+totH);
   document.getElementById('bridgeLoaded').textContent = pctStr(supL+proL, totB+totH);
   document.getElementById('bridgeDuty').textContent   = (csum?Math.round(wsum/csum):0)+'%';
-  // reporting window (header) + snapshot "as of" tags — all from DATA_WINDOW (computed, not typed)
+  // header freshness stamp + snapshot "as of" tags — all from DATA_WINDOW (computed, not typed).
+  // NB: this is a data-currency cue, NOT a single window governing every panel — each panel
+  // carries its own true window (June month, 6-day util, 15-period tokens, live snapshots).
   const DW = window.DATA_WINDOW;
   if(DW){
-    document.getElementById('reportWindow').innerHTML =
-      'Reporting window<br>' + DW.range + ' · ' + DW.days + (DW.days===1?' day':' days');
+    document.getElementById('reportWindow').innerHTML = 'Data as of<br>' + DW.asOf;
     const asOf = 'as of ' + DW.asOf;
     const dEl = document.getElementById('donutAsOf'); if(dEl) dEl.textContent = asOf;
     const mEl = document.getElementById('mapAsOf');   if(mEl) mEl.textContent = asOf;

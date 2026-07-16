@@ -1,0 +1,16 @@
+model_uid,precision,tp,cu,interactivity_tps_user,source
+gptoss-120b@B200,fp4,1,16,118.2,simulated
+gptoss-120b@B200,fp4,1,32,81.2,simulated
+gptoss-120b@B200,fp4,1,64,49.9,simulated
+glm5-1@B200,fp4,4,8,121.1,simulated
+glm5-1@B200,fp4,4,16,88.4,simulated
+glm5-1@B200,fp4,4,32,57.4,simulated
+deepseek-v4-flash@B200,fp8,1,4,82.2,simulated
+deepseek-v4-flash@B200,fp8,1,8,61.3,simulated
+deepseek-v4-flash@B200,fp8,1,16,40.6,simulated
+kimi-k2-6@B200,fp16,1,1,108.7,simulated
+kimi-k2-6@B200,fp16,1,2,80.6,simulated
+kimi-k2-6@B200,fp16,1,4,53.2,simulated
+llama4-scout-17b@B200,fp4,1,8,103.4,simulated
+llama4-scout-17b@B200,fp4,1,16,69.8,simulated
+llama4-scout-17b@B200,fp4,1,32,42.3,simulated

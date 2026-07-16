@@ -26,11 +26,23 @@ const LOADED_TARGET = 90;   // %
 const KPI_MARGIN    = 5;    // percentage points counted as "slightly below"
 const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headline)
 
+/* Average GPU throughput — REPORTING PLACEHOLDER (estimated offline in Excel, admin-provided
+   2026-07-15). Shown as a KPI card for now; swap for a telemetry-computed value when the
+   methodology is finalized. This is the only place the figure lives — index.html reads the global. */
+const AVG_GPU_THROUGHPUT_PCT = 1.1;   // %
+
+/* Model-throughput band (hero). The interactivity SLA is the per-user output speed we promise;
+   the ceiling is "every benchmarked model saturated while still holding this speed".
+   60 tok/s is deliberate: it is the only target every benchmarked model can actually meet
+   (phoenix at fp16 has a hard single-user ceiling near 80 tok/s/user). Raising it would drop
+   models out entirely. See RAW_DATA/system_throughput/METHODOLOGY.md. */
+const INTERACTIVITY_SLA = 60;                                  // tok/s per user
+
 (function(){
   const FILES = ['dim_clusters','dim_models','dim_organizations','dim_applications','dim_gpu_pricing',
     'fact_card_snapshot','fact_duty_daily','fact_workload_util',
     'fact_token_usage_monthly','fact_model_token_weekly','fact_model_pricing',
-    'fact_training_gpu_hours_monthly'];
+    'fact_training_gpu_hours_monthly','fact_serving_curve'];
 
   /* Data source: default = the tracked simulated mock (data/). `?data=real` loads
      the gitignored local real dataset (data_real/) — keeps real/confidential data
@@ -50,13 +62,13 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
   }
 
   window.DATA_READY = Promise.all(FILES.map(f =>
-    fetch(DATA_DIR+f+'.csv?v=19').then(r=>{
+    fetch(DATA_DIR+f+'.csv?v=25').then(r=>{
       if(!r.ok) throw new Error('Failed to load '+DATA_DIR+f+'.csv ('+r.status+')');
       return r.text();
     }).then(parseCSV)
   )).then(parts => build.apply(null, parts));
 
-  function build(clusters, models, orgs, apps, gpuPricing, cards, dutyDaily, workload, tokMonthly, tokWeekly, pricing, training){
+  function build(clusters, models, orgs, apps, gpuPricing, cards, dutyDaily, workload, tokMonthly, tokWeekly, pricing, training, servingCurve){
     const round1 = v => Math.round(v*10)/10;
     /* Real adaptive view: the token facts are a short rolling window that may straddle
        two partial calendar months, so "latest month" is meaningless. Report the WHOLE
@@ -140,6 +152,171 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     Object.keys(MODEL_TOKENS).forEach(k => MODEL_TOKENS[k] = MODEL_TOKENS[k].map(round1));
     const modelTok = {};   // total tokens per model_uid (for cost ranking/weighting)
     MODELS.forEach(m => modelTok[m.name + '@' + m.cluster] = MODEL_TOKENS[m.name].reduce((a,b)=>a+b,0));
+
+    /* =========================================================================
+     * MODEL THROUGHPUT (hero band) — fact_serving_curve → THROUGHPUT, THROUGHPUT_CEILING
+     *
+     * "For the models we have BENCHMARK DATA for, and on the GPUs those models actually
+     *  occupy: how many output tokens/second could they emit if fully saturated, while
+     *  each user still gets INTERACTIVITY_SLA tok/s?"
+     *
+     * MEASURED ONLY — no proxies, no estimates, no scenarios (2026-07-13 management call).
+     * An earlier version proxied un-benchmarked models from similar ones and modelled an
+     * "all fp4" scenario, so it could quote a whole-fleet figure. Rejected as too
+     * assumption-heavy. The rule now:
+     *
+     *     a model counts ONLY if it was benchmarked AND is loaded.
+     *     the DENOMINATOR is the cards those models occupy — not the whole cluster.
+     *
+     * So this is an exact statement about a well-defined subset, not a guess about the
+     * fleet. Loaded models with no curve are OUT OF SCOPE (counted in `outOfScopeGpus`
+     * and named in the caption) — never silently folded in at zero, which would drag the
+     * per-GPU average down and understate the models we did measure.
+     *
+     * Decode is memory-bandwidth-bound, so per-user latency is LINEAR in concurrency:
+     *     1/interactivity = a + b·CU     a = weight-read time   b = KV-read time per user
+     * Fit (a,b) per (model, TP) by least squares on the measured points, solve CU at the
+     * SLA, then  tok/s per GPU = CU × SLA ÷ TP  and  total = Σ (tok/s per GPU × cards).
+     *
+     * TWO HARD RULES:
+     *   1. CU ≥ 1     cannot serve fewer than one user. If even one user can't get the SLA,
+     *                 the model cannot meet it and contributes 0 (loudly). Never extrapolate
+     *                 past this physical floor.
+     *   2. TP ≤ cards cannot shard a model across more GPUs than it holds. (This is why
+     *                 phoenix's TP8 curve is unusable — it only holds 4 cards.)
+     * ======================================================================== */
+    const curveByUid = {}, curvePrec = {}, curveSrc = {};
+    (servingCurve||[]).forEach(r => {
+      if(!r.model_uid) return;
+      const tp = +r.tp, cu = +r.cu, i = +r.interactivity_tps_user;
+      if(!(tp > 0) || !(cu > 0) || !(i > 0)) return;
+      (curveByUid[r.model_uid] = curveByUid[r.model_uid] || {});
+      (curveByUid[r.model_uid][tp] = curveByUid[r.model_uid][tp] || []).push({cu:cu, i:i});
+      curvePrec[r.model_uid] = r.precision;
+      curveSrc[r.model_uid]  = r.source;
+    });
+
+    /* least squares on (CU, 1/interactivity) → {a,b}. Needs ≥2 measured points. */
+    function fitCurve(pts){
+      const n = pts.length;
+      if(n < 2) return null;
+      let sx=0, sy=0, sxx=0, sxy=0;
+      pts.forEach(p => { const y = 1/p.i; sx += p.cu; sy += y; sxx += p.cu*p.cu; sxy += p.cu*y; });
+      const den = n*sxx - sx*sx;
+      if(!den) return null;
+      const b = (n*sxy - sx*sy)/den;
+      const a = (sy - b*sx)/n;
+      return (b > 0) ? {a:a, b:b} : null;      // b≤0 is unphysical (throughput must fall as load rises)
+    }
+
+    /* Best tok/s/GPU for one model at the SLA. null if it cannot meet the SLA on any usable TP. */
+    function rateFor(uid, maxTp){
+      const byTp = curveByUid[uid];
+      if(!byTp) return null;
+      let best = null;
+      Object.keys(byTp).forEach(tpKey => {
+        const tp = +tpKey;
+        if(tp > maxTp) return;                                   // RULE 2
+        const pts = byTp[tpKey];
+        const f = fitCurve(pts);
+        if(!f) return;                                           // single point → not enough to solve
+        const cu = (1/INTERACTIVITY_SLA - f.a) / f.b;
+        if(cu < 1) return;                                       // RULE 1
+        const lo = Math.min.apply(null, pts.map(p=>p.cu)), hi = Math.max.apply(null, pts.map(p=>p.cu));
+        const rate = cu * INTERACTIVITY_SLA / tp;
+        if(!best || rate > best.tokpsPerGpu)
+          best = {tokpsPerGpu: rate, tp: tp, cu: cu,
+                  how: (cu >= lo && cu <= hi) ? 'interpolated' : 'extrapolated'};
+      });
+      return best;
+    }
+
+    /* ---- roll up over BENCHMARKED + LOADED models only ---- */
+    const thRows = [], thCantMeet = [];
+    Object.keys(cardsByUid).forEach(uid => {
+      if(!curveByUid[uid]) return;                    // not benchmarked → out of scope entirely
+      const n = cardsByUid[uid];
+      if(!n) return;                                  // benchmarked but not loaded (e.g. qwen3-vl) → skip
+      const r = rateFor(uid, n);
+      const m = modelByUid[uid];
+      if(!r) thCantMeet.push(uid);
+      thRows.push({
+        uid: uid, name: m ? m.name : uid, color: m ? m.color_hex : '#8E8E93',
+        cards: n, precision: curvePrec[uid] || '—', source: curveSrc[uid] || '—',
+        tp: r ? r.tp : 0, cu: r ? Math.round(r.cu*10)/10 : 0,
+        how: r ? r.how : 'cannot meet SLA',
+        tokpsPerGpu: r ? r.tokpsPerGpu : 0,
+        fleetTokps:  (r ? r.tokpsPerGpu : 0) * n,
+        perGpuHour:  (r ? r.tokpsPerGpu : 0) * 3600,
+      });
+    });
+    thRows.sort((a,b)=> b.fleetTokps - a.fleetTokps);
+
+    const thCards  = thRows.reduce((s,r)=> s + r.cards, 0);          // THE denominator: measured cards only
+    const thTokps  = thRows.reduce((s,r)=> s + r.fleetTokps, 0);
+    const thPerGpu = thCards ? thTokps/thCards : 0;
+
+    /* actual output, for exactly these models over the observed window */
+    const thUids = {}; thRows.forEach(r => thUids[r.uid] = true);
+    let thActM = 0; const thDays = {};
+    tokWeekly.forEach(r => {
+      if(!thUids[r.model_uid]) return;
+      thActM += (+r.output_tokens_m || 0);
+      thDays[r.week_start] = true;
+    });
+    const thNDays = Object.keys(thDays).length;
+    const thActual = thNDays ? (thActM * 1e6)/(thNDays * 86400) : 0;
+    thRows.forEach(r => {
+      let m = 0;
+      tokWeekly.forEach(t => { if(t.model_uid === r.uid) m += (+t.output_tokens_m || 0); });
+      r.actualTokps = thNDays ? (m*1e6)/(thNDays*86400) : 0;
+      r.usedPct     = r.fleetTokps ? (100*r.actualTokps/r.fleetTokps) : 0;
+    });
+
+    /* Loaded GPUs we are NOT describing — the honest scope caveat, computed not typed. */
+    const thClusters = {}; thRows.forEach(r => thClusters[(r.uid.split('@')[1]||'')] = true);
+    let thOutGpus = 0; const thOutModels = [];
+    Object.keys(cardsByUid).forEach(uid => {
+      const cl = uid.split('@')[1] || '';
+      if(!thClusters[cl] || curveByUid[uid]) return;
+      thOutGpus += cardsByUid[uid];
+      thOutModels.push((modelByUid[uid] ? modelByUid[uid].name : uid) + ' (' + cardsByUid[uid] + ')');
+    });
+    const thClusterGpus = Object.keys(thClusters).reduce((s,c)=> s + (CLUSTER_TOTAL[c]||0), 0);
+
+    const THROUGHPUT = thRows;
+    const THROUGHPUT_CEILING = {
+      fleetTokps:       thTokps,
+      tokensPerDay:     thTokps * 86400,
+      users:            thTokps / INTERACTIVITY_SLA,     // each user consumes exactly the SLA
+      gpus:             thCards,                          // the denominator — measured models' cards
+      clusterGpus:      thClusterGpus,                    // the whole cluster, for the caption only
+      outOfScopeGpus:   thOutGpus,                        // loaded, but no benchmark data
+      outOfScopeModels: thOutModels,
+      models:           thRows.length,
+      perGpu:           thPerGpu,
+      perGpuHour:       thPerGpu * 3600,
+      perGpuDay:        thPerGpu * 86400,
+      actualTokps:      thActual,
+      actualPerGpuHour: thCards ? (thActual/thCards)*3600 : 0,
+      headroom:         thActual ? thTokps/thActual : 0,
+      utilPct:          thTokps ? (100*thActual/thTokps) : 0,
+      observedDays:     thNDays,
+    };
+
+    /* ---- Guardrails: never let a 0 be silent. ---- */
+    (function(){
+      if(!Object.keys(curveByUid).length) return;                 // fact absent → band hides itself
+      const known = new Set(models.map(m => m.model_uid));
+      const unknown = Object.keys(curveByUid).filter(u => !known.has(u));
+      if(unknown.length) console.warn('[rollup] fact_serving_curve has model_uid(s) not in dim_models '
+        + '(they will never match a card and are silently inert): ' + unknown.join(', '));
+      if(thOutGpus) console.info('[rollup] token-capacity band covers ' + thCards + ' of '
+        + thClusterGpus + ' cluster GPUs. ' + thOutGpus + ' loaded GPU(s) run models with NO benchmark '
+        + 'data and are OUT OF SCOPE (not estimated): ' + thOutModels.join(', '));
+      if(thCantMeet.length) console.warn('[rollup] model(s) CANNOT meet the ' + INTERACTIVITY_SLA
+        + ' tok/s/user SLA even at CU=1 → counted as 0: ' + thCantMeet.join(', '));
+    })();
 
     /* ---- organizations → ORGS, ORG_COLOR ---- */
     const orgSorted = orgs.slice().sort((a,b)=> (+a.display_order) - (+b.display_order));
@@ -356,5 +533,9 @@ const UTIL_TARGET   = 85;   // % farm GPU-hour utilization target (Viz 2 headlin
     window.PRICING_PROVIDERS = PRICING_PROVIDERS;
     window.COST_SAVINGS  = COST_SAVINGS;
     window.KPI           = KPI;
+    window.THROUGHPUT         = THROUGHPUT;          // [per-model rows] — benchmarked + loaded models only
+    window.THROUGHPUT_CEILING = THROUGHPUT_CEILING;  // totals over THOSE models' cards (not the whole cluster)
+    window.INTERACTIVITY_SLA  = INTERACTIVITY_SLA;   // tok/s/user the ceiling is quoted at
+    window.AVG_GPU_THROUGHPUT_PCT = AVG_GPU_THROUGHPUT_PCT;  // reporting placeholder → KPI card
   }
 })();

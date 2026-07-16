@@ -26,6 +26,7 @@
 ### Status legend
 - ✅ **Metric-traceable** — the figure derives from a named source metric.
 - 🧾 **Admin input** — a governance/config value the dashboard admin sets by hand; **no metric** (by design).
+- 🧪 **Benchmark-measured** — a **measured** figure, but measured **off-fleet** (a serving benchmark for that model on that hardware), not observed on our fleet. It says what a model *could* produce, not what it *did*. Used only by the Model Throughput band. Distinct from ⚠ (which means *no real source at all*) and from ✅ (observed on our own fleet).
 - ⚠ **Simulated / no clean source yet** — no authoritative metric exists today; value is placeholder until the source lands.
 
 ---
@@ -66,6 +67,23 @@ Each row: **on-screen figure → Final (global.field) → Intermediate (csv.colu
 | Loaded sub "44 / 50 · target 90%" | `csum`,`total`,`LOADED_TARGET` | `fact_card_snapshot`, `dim_clusters.total_cards` | (as above) | — | 🧾 (target) |
 | **Monthly Tokens (output)** | `OUTPUT_FLEET[last]` | `fact_token_usage_monthly.output_tokens_m` | `litellm_output_tokens_metric` | Σ output tokens over the latest month | ✅ |
 | MoM % + "vs N M <month>" | `OUTPUT_FLEET[last]`,`[last-1]` | `fact_token_usage_monthly.{month,output_tokens_m}` | `litellm_output_tokens_metric` | month-over-month delta | ✅ |
+
+### Viz 0 — Model Throughput hero band (`renderThroughput`)
+
+> **Different in kind from every other visual.** It answers what the benchmarked models *could* produce, not what the fleet *did*. **Measured only — no proxies, no estimates.** A model counts only if it was benchmarked **and** is loaded, and **the denominator is the GPUs those models occupy**, not the whole cluster (real view: 32 of 64 B200 GPUs). Loaded models with no curve are **excluded and named in the caption**, never folded in at zero. Both facts are stated in the subtitle and the ⓘ. Full audit trail: `RAW_DATA/system_throughput/METHODOLOGY.md`.
+
+| Figure | Final | Intermediate | Raw | Derivation | |
+|---|---|---|---|---|---|
+| **Tokens per GPU-hour** (hero) | `THROUGHPUT_CEILING.perGpuHour` | `fact_serving_curve.{tp,cu,interactivity_tps_user}` + `fact_card_snapshot.model_uid` | NVIDIA serving benchmark (ISL/OSL 8K/1K) | fit `1/interactivity = a + b·CU` per model+TP; solve `CU@60`; `tok/s/GPU = CU×60÷TP`; blend by cards; ×3600 | 🧪 |
+| **Combined capacity** tok/s + B/day | `THROUGHPUT_CEILING.{fleetTokps,tokensPerDay}` | (as above) | (as above) | `Σ (tok/s per GPU × cards)`; rules: **CU ≥ 1**, **TP ≤ cards** | 🧪 |
+| Concurrent users | `THROUGHPUT_CEILING.users` | — | — | `fleetTokps ÷ INTERACTIVITY_SLA` (each user consumes exactly the SLA) | 🧪 |
+| **Scope caption** — "N models on M GPUs" + the excluded GPUs, named | `THROUGHPUT_CEILING.{models,gpus,outOfScopeGpus,outOfScopeModels}` | `fact_serving_curve.model_uid` ∩ `fact_card_snapshot.model_uid` | — | in-scope = benchmarked **and** loaded; `gpus` = the cards those models occupy (**the denominator**). Loaded models with no curve are counted into `outOfScopeGpus` and named — excluded, never zero-filled | ✅ |
+| **Headroom ×** + "% of capacity used" | `THROUGHPUT_CEILING.{headroom,utilPct}` | `fact_model_token_weekly.output_tokens_m` (B200 rows) | `litellm_output_tokens_metric` / SpendLogs | ceiling ÷ actual, where actual = Σ output tokens ÷ (observed days × 86400) | ✅ (actual) · 🧪 (ceiling) |
+| Capacity bar (by model) | `THROUGHPUT[].fleetTokps`, `.color` | `fact_serving_curve` + `fact_card_snapshot` + `dim_models.color_hex` | (as above) | per-model share of the capacity; colours reused from the Card Map | 🧪 |
+| **Per-model table** (tok/s/GPU · M tokens/GPU-hr · cards · total · % used) | `THROUGHPUT[].{tokpsPerGpu,perGpuHour,cards,fleetTokps,usedPct}` | (as above) + `fact_model_token_weekly` | (as above) | the per-model solve; `% used` = that model's actual output ÷ its own capacity | 🧪 (capacity) · ✅ (actual) |
+| SLA "60 tok/s per user" | `INTERACTIVITY_SLA` | — | — | policy constant (`rollup.js`) — the only target every deployed model can meet | 🧾 |
+
+*Every row is `source = measured` (mock: `simulated`). A **loaded model with no curve is excluded from both the numerator and the denominator** — its GPU count is reported separately as `outOfScopeGpus` and the models are named in the caption, so the omission is visible rather than silent. A benchmarked model that cannot meet the SLA even at CU = 1 counts as **0** and is flagged via `console.warn`.*
 
 ### Viz 1 — GPU Utilization, Top-5 Models (`renderDuty`)
 

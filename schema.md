@@ -382,6 +382,25 @@ Conventions: **Grain** = what exactly one row represents. *PK* = primary key, *F
 | `model_uid` | string FK→`dim_models` | model occupying the card; **blank ⇒ idle** | `glm5-1@B200` |
 | `workload_type` | string | `inference` \| `training` \| `batch`; blank if idle | `inference` |
 
+**`fact_serving_curve.csv`** — **Grain: one benchmark operating point (model × precision × TP × concurrency).** Feeds the Fleet Token Capacity hero band (`THROUGHPUT`, `THROUGHPUT_CEILING`).
+
+> **Unlike every other fact in this contract, this is NOT observed on our fleet.** It is a *serving benchmark* (NVIDIA inference performance tool, ISL/OSL 8K/1K) describing what each model **could** do on this hardware. The dashboard joins it to `fact_card_snapshot` (what we actually run) to produce a **ceiling**. Real inputs, modelled output. Full derivation: `RAW_DATA/system_throughput/METHODOLOGY.md`.
+
+| column | type | meaning | units / example |
+|---|---|---|---|
+| `model_uid` | string FK→`dim_models` | the model this curve describes | `glm5-1@B200` |
+| `precision` | string | weight quantisation of the benchmarked deployment | `fp4` \| `fp8` \| `fp16` \| `unknown` |
+| `tp` | int | tensor-parallel size — GPUs one replica is sharded across | `4` |
+| `cu` | float | concurrent users **per replica** at this point | `32` |
+| `interactivity_tps_user` | float | output speed **one user** sees at this (TP, CU) | `55.6` |
+| `source` | string | provenance — `measured` (real) \| `simulated` (mock). **No proxies or estimates**: a model appears here only if it was actually benchmarked. | `measured` |
+
+**How `rollup.js` consumes it.** Decode is memory-bandwidth-bound, so per-user latency is linear in concurrency: `1/interactivity = a + b·CU`. Fit `(a,b)` per (model, TP) by least squares on the measured points, solve `CU` at `INTERACTIVITY_SLA` (60), then `tok/s per GPU = CU × SLA ÷ TP` and `total = Σ (tok/s per GPU × cards)`. Two hard rules: **CU ≥ 1** (a model that can't serve even one user at the SLA counts as 0) and **TP ≤ that model's card count**.
+
+> **The denominator is the cards these models occupy — NOT the cluster.** A loaded model absent from this fact is **out of scope**: excluded from both numerator and denominator, its GPU count surfaced as `THROUGHPUT_CEILING.outOfScopeGpus` and named in the panel caption. Folding it in at zero would drag the per-GPU average down and understate the models that *were* measured. To widen the scope, benchmark more models.
+
+> **Deliberately NOT a column: `tokps_per_mw`.** The raw benchmark exports carry it, but it is redundant — `tok/s/GPU = CU × interactivity ÷ TP` (verified to 0.5% on all 14 measured points) — and carrying it would drag the tool's admin-set 2.17 kW/GPU power constant into the dashboard for no reason. It is dropped by the ETL.
+
 **`fact_duty_daily.csv`** — **Grain: one model × one business-day.** Pre-bucketed inputs to the 14-day duty cycle. Duty % = `Σ active_buckets ÷ Σ total_buckets` over the window.
 
 | column | type | meaning | units / example |

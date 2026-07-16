@@ -17,3 +17,8 @@ __pycache__/
 
 # Real (confidential) dashboard dataset — local-only, never commit
 data_real/
+
+# Confluence documentation source — names confidential models and real internals.
+# Was untracked but NOT ignored, so a `git add .` would have committed it.
+# If this ever needs to be shared, scrub the confidential model names first.
+docs/

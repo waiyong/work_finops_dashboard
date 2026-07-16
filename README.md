@@ -75,6 +75,7 @@ The page is designed to be read like a one-page argument:
 
 | # | Title | Type | What it answers | Data-maturity badge |
 |---|---|---|---|---|
+| 0 | **Model Throughput — Measured Capacity** (hero band, under the KPI row) | Hero figures + per-model table (tok/s per GPU · M tokens/GPU-hour) + a capacity bar with the actual overlaid at the same scale | For the models we have **benchmark data** for: how many tokens/s could they produce if saturated at **60 tok/s per user**, and what is that **per GPU-hour**? Mock: 4.07 M tokens/GPU-hour across 24 GPUs. | **Measured** — no proxies or estimates. Serving benchmarks (NVIDIA tool, ISL/OSL 8K/1K) → `fact_serving_curve`. **Scope = only the GPUs running benchmarked models**; the rest are excluded, not estimated. |
 | 1 | **GPU Duty Cycle — Top 5 Models** | Horizontal bar + 80% target line | Which models keep their cards busy? Fleet-weighted avg = 60%. | Source: LiteLLM `litellm_requests_metric` |
 | 3a | **% GPUs with Models Loaded** | Donut + 90% threshold | How many cards have a model loaded at all? 44/50 = 88%. | Source: DCGM + K8s API |
 | 3b | **GPU Card Allocation Map** | Model-grouped card blocks | Which model sits on which physical card; where are the idle cards? Each model is a labeled block (dot · name · count) holding its card squares; idle cards form a dashed block. | Source: DCGM + K8s API |
