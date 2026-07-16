@@ -22,3 +22,7 @@ data_real/
 # Was untracked but NOT ignored, so a `git add .` would have committed it.
 # If this ever needs to be shared, scrub the confidential model names first.
 docs/
+
+# Real agency usage-attribution data (e.g. per-HTD token breakdowns) — same
+# sensitivity class as data_real/. Was untracked but NOT ignored.
+teammate.md
